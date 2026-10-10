@@ -8,7 +8,9 @@ Gameplay transitions and learning remain future stages.
 
 Subsequent increment (2026-10-10): [manual discards](manual-discards.md) implement
 the first Phase 4 transition. This audit's test counts, payload sizes, and timings
-describe the earlier Stage 1-3 snapshot.
+describe the earlier Stage 1-3 snapshot. The subsequent [Stage 4 engine](stage-four-engine.md)
+adds the remaining minimal gameplay rules and current verification; this audit
+retains its historical scope and measurements.
 
 ## Changes and measured effects
 

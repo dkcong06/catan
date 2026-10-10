@@ -1,8 +1,9 @@
 # Engine optimization: owned seven/discard transitions
 
 Implemented 2026-10-10 in the main project. This increment prepares the existing
-rules for efficient rollout execution; full games, observations, parallel workers,
-policy inference, and training remain unfinished.
+rules for efficient rollout execution. The subsequent [Stage 4 increment](stage-four-engine.md)
+now runs complete minimal games; observations, parallel workers, policy inference,
+and training remain unfinished. Measurements below describe the earlier discard-only milestone.
 
 ## API and ownership
 
@@ -113,7 +114,8 @@ and learning; the ratios are not claims about future training speed.
 
 ## Verification and remaining work
 
-Current container gate: 415 Python tests and 21 JavaScript tests pass. New gates
+Initial owned-transition gate: 415 Python tests and 21 JavaScript tests passed.
+The subsequent Stage 4 contract records the current expanded gate. New gates
 compare both paths across 700 varied rounds for all seats and three/four players,
 including no-discard cases, cached Gaussian/RNG continuation, conservation, all
 array identities, functional source isolation, and rejected-action preservation.
@@ -125,7 +127,8 @@ The Python checks image builds. The Node target rebuild hit a Docker registry
 metadata timeout; all current JavaScript tests pass using the existing Node checks
 image with a read-only mount of the main source. No browser script/layout changed.
 
-Next complete the gameplay loop, then observation/action/reward interfaces and
-measured headless episodes. Only then add preallocated rollout buffers, parallel
-games, and batched policy inference. Network compilation/mixed precision remain
+The subsequent Stage 4 increment completes the minimal gameplay loop and measures
+headless baseline episodes, including capped stalemates. Next broaden Stage 5
+validation, then implement observation/action/reward interfaces, preallocated
+rollout buffers, parallel games, and batched policy inference. Network compilation/mixed precision remain
 later, workload-dependent work. No ML dependencies or host packages were added.

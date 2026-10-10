@@ -62,13 +62,14 @@ debug dtypes. Mutable states are unhashable. `validate()` raises
 `ValueError` for invalid storage, resource conservation, piece counts, ownership,
 VP/building agreement, adjacent buildings, and turn/setup metadata. Validation
 is explicit and excluded from the hot copy path; connectivity/action legality
-will be handled in Phase 4.
+are now handled by the [Stage 4 engine](stage-four-engine.md).
 
 `state.port_access(player)` returns sorted distinct `PortType` values granted by
 that player's settlements or cities. It checks nine port endpoint pairs rather
 than scanning 54 vertices. Roads do not grant access. Access is derived directly
 from ownership and immutable board metadata, without a mutable ownership/ratio
-cache. Trade legality and bank updates belong to Phase 4 or the later expansion.
+cache. Phase 4 now implements bank trades using the best owned port ratio, without
+adding a mutable ratio cache.
 
 Begin with the guide's fully observable training baseline. Keep true state
 separate from the future observation encoder so realistic hidden hands can be
@@ -92,9 +93,10 @@ introduced without changing the simulator's underlying data.
 
 Phase 3 is complete when states initialize correctly, compare explicitly,
 copy without shared mutable data, and replay independent seeded branches.
-Keep functional copies for Phase 4 until profiling actual gameplay or search
-shows copying is a bottleneck. Undo stacks, vectorized environments, GNNs,
-PPO, and MCTS are later work.
+The independent-copy API remains available for branches. Profiling subsequently
+justified an optional owned in-place API; the [Stage 4 contract](stage-four-engine.md)
+documents both paths and gameplay measurements. Undo stacks, vectorized environments,
+GNNs, PPO, and MCTS remain later work.
 
 ## Verification and measurements (2026-10-09)
 

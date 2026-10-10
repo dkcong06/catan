@@ -2,8 +2,9 @@
 
 Implemented 2026-10-10 at the user's request. The engine and browser allow each
 affected player to choose which resource cards to return after a seven.
-This is a focused increment; setup actions, dice drawing/other totals, production,
-robber movement/stealing, trading/building, and full turns are still unfinished.
+This began as a focused increment. The [Stage 4 engine](stage-four-engine.md) now
+integrates setup, dice/production, robber movement/stealing, building/trading,
+and full turns. The browser still demonstrates manual discards with sample hands.
 
 ## Rule and state contract
 
@@ -43,8 +44,9 @@ robber position, and complete RNG continuation. `GameState.copy`, equality,
 deepcopy aliases, `array_bytes`, and debug `validate()` include pending counts.
 The extra payload is six/eight bytes for three/four players (241/258 bytes total,
 excluding array headers, RNG, and shared board). No discard combinations are
-enumerated or cached: validation examines only the selected five counts and at
-most four pending seats. `validate()` remains an explicit debug check; engine
+eagerly enumerated or cached: validation examines only the selected five counts
+and at most four pending seats. `legal_actions` yields count combinations lazily
+only when explicitly iterated; direct manual choices do not enumerate them. `validate()` remains an explicit debug check; engine
 callers must provide a valid state.
 
 ## Engine example
@@ -73,10 +75,12 @@ assert following.current_player == 0  # Original roller moves the robber.
 assert source.hands[2].tolist() == [4, 3, 2, 0, 0]  # Functional source retained.
 ```
 
-Run through the project Docker workflow in README. A future roll action must
-draw its dice on an independent branch and call `resolve_seven` when the total is
-seven; other totals will use a separate production path. `apply_action` currently
-supports only `DiscardAction`; a full `legal_actions` interface is not implemented.
+Run through the project Docker workflow in README. `RollAction()` now draws two
+dice from the state RNG and enters this discard flow automatically on a seven;
+other totals distribute resources. Functional calls draw on an independent branch;
+in-place calls advance the owned RNG. Both action APIs now support all minimal
+Stage 4 actions, with lazy `legal_actions` and terminal/winner queries. The known-
+seven helpers remain useful for this demo and explicitly supplied test fixtures.
 
 ## Exclusive-owner transitions
 
@@ -157,6 +161,6 @@ The updated preview runs at `http://127.0.0.1:8124/discards` in
 (ignored by Git). The old Catan preview container was replaced; other services
 were unchanged.
 
-Keep the guide PDF and generator unchanged. Next engine increments are setup
-actions, dice/production integration, then robber movement and stealing; the
-discard phase is ready for those transitions.
+The guide PDF and generator remain unchanged. Setup, dice/production, robber
+movement/stealing, and normal turns are now integrated; see the current
+[Stage 4 verification and remaining boundary](stage-four-engine.md).

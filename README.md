@@ -3,10 +3,12 @@
 Phases 1-3 of `Catan_RL_Guide.pdf` are complete: package/container setup, board
 geometry, legal seeded layouts with ports, and compact, reproducible game state
 with independent copies.
-Phase 4 has started with player-selected discards after a seven, including browser
-resource selectors. Full turns, dice production, robber movement/stealing, and RL
-remain later increments. The [discard rule contract](docs/manual-discards.md)
-documents this implementation. The
+Phase 4 now provides a playable minimal engine: setup, seeded dice/production,
+manual discards, robber movement/stealing, building, bank/port trades, end turns,
+and ten-point victory. The [Stage 4 contract](docs/stage-four-engine.md) covers
+scope, ownership, lazy legal choices, random-game validation, and capped stalemates.
+The browser remains a board/discard demo; observations and RL are later work.
+The [discard rule contract](docs/manual-discards.md) documents manual choices. The
 [Phase 3 plan and verification](docs/phase-three-plan.md) document the state contract.
 
 The board generator and board-preview routes use only Python's standard library. Game state
@@ -30,9 +32,9 @@ coastal port placement, reproducibility, immutability, and viewer HTTP routes.
 State checks cover three/four players, every initial quantity, independent copies,
 mixed RNG branches, nested deepcopy aliases, conservation, and invalid-state diagnostics.
 The Stage 1-3 audit recorded 242 Python tests and nine JavaScript behavior tests.
-With exclusive-owner transitions added, the suite passes 415 Python tests and 21
-JavaScript tests (2026-10-10), including rule/API transitions, selector behavior,
-and functional/in-place equivalence.
+With Stage 4 added, the suite passes 529 Python tests and 21 JavaScript tests
+(2026-10-10), including setup, all phases, production/shortages, connectivity,
+port trades, full-game replay, selector behavior, and functional/in-place equivalence.
 The separate Node test target uses built-in tools and adds no Python runtime or
 host dependencies. Browser checks cover seed generation and the responsive layout.
 
@@ -112,9 +114,9 @@ provides explicit debug checks and is not called automatically on every copy.
 Small integer arrays use shape/dtype-checked byte comparisons; noninteger debug
 arrays retain NumPy's equality semantics. Port access checks the two endpoints
 directly without generator allocations or a mutable cache.
-It checks physical/bookkeeping invariants, including pending discards. Phase 4's
-`apply_action` currently handles `DiscardAction`; other actions and `legal_actions`
-remain to be implemented.
+It checks physical/bookkeeping invariants, including pending discards. Phase 4
+implements `legal_actions`, both action-transition APIs, and terminal/winner queries.
+Legal choices are yielded lazily; consume them before mutating the queried state.
 
 ```powershell
 docker run --rm catan-checks python -m scripts.benchmark_state
@@ -144,10 +146,37 @@ built. This feature needs the Docker image's NumPy dependency. See the
 [discard documentation](docs/manual-discards.md) for a runnable engine example,
 API behavior, validation, and remaining integration work.
 
+## Play the minimal engine
+
+```python
+from catan.engine import winner
+from catan.players.random_agent import play_random_game
+
+state = play_random_game(0, n_players=4, max_actions=10_000, validate=True)
+print(winner(state), state.vp.tolist())
+```
+
+The explicit random agent uses a policy RNG separate from game randomness.
+Manual users still choose discard resource counts themselves; the engine never
+selects those cards. `play_random_game` raises at its action cap rather than
+inventing a winner. The minimal rules can stalemate when expansion is exhausted;
+future RL environments must distinguish episode truncation from a real win.
+
+```powershell
+docker run --rm catan-checks python -m scripts.benchmark_games
+docker run --rm catan-checks python -m scripts.benchmark_games --players 3
+```
+
+The gameplay benchmark compares both APIs on the same seeded random-policy games,
+reports completed/capped episodes, and includes reset, legal queries, and policy
+selection. Neural inference/training and rendering are excluded. Development
+cards, longest road/largest army, and negotiated trades remain later expansions.
+
 ## Engine transitions for owned rollout states
 
 `resolve_seven_inplace(state)` and `apply_action_inplace(state, action)` update a
-valid state exclusively owned by the caller and return the same object. They
+valid state exclusively owned by the caller and return the same object. The latter
+now supports every Stage 4 action, including seeded dice and stealing. They
 retain all array and RNG identities; the functional APIs continue to return
 independent successor states. Both paths share rule validation and mutation
 logic, including manual resource choices. The browser retains functional calls.

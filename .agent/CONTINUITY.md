@@ -2,6 +2,8 @@
 
 ## [PLANS]
 
+- 2026-10-10T15:41:44Z [USER] Start building Stage 4 in main, keeping ML efficiency and avoiding unneeded code. Implement guide Section 4 minimal playable rules with shared functional/in-place mutations and bounded legal-choice generation; retain manual discard API, ports, seeded setup/copy contracts, and engine/ML separation. Validate and document before handoff; no PDF regeneration.
+
 - 2026-10-10T15:20:25Z [USER] Implement immediate training-foundation optimizations in main: optional exclusive-owner in-place seven/discard transitions, profiled temporary reuse, repeatable transition benchmarks, and equivalence/rejection checks. Full gameplay and RL remain later increments.
 
 - 2026-10-10T09:57:49Z [USER] Active project is C:\Users\david\Documents\Coding\Catan. Perform future commands and edits there with explicit workdir; supersedes the earlier worktree-only location. Full Stage 1-3 and manual-discard source/tests/docs transferred from f582 without changing Git HEAD, PDF/assets, or unrelated local files.
@@ -14,6 +16,8 @@
 - 2026-10-09T05:04:47Z [CODE] Stage 3 is complete. Next requested increment can implement Phase 4 legal_actions/apply_action using functional copies; decide discard behavior before adding robber transitions. Gameplay, observation encoding, and RL are not implemented.
 
 ## [DECISIONS]
+
+- 2026-10-10T16:09:39Z [CODE] Stage 4 adds typed frozen actions, setup/starting resources, seeded dice/production, robber moves/weighted steals, paid buildings, best bank/owned-port trades, turn advance, derived terminal/winner queries. Shared validators/predicates/mutations serve copy/in-place paths; legal_actions yields lazily with shared scalar action objects and on-demand discard combinations. Explicit random agent uses its own policy RNG and samples physical discards; engine/browser choices remain manual. No state fields, geometry/seed setup changes, ML dependencies, or undo framework.
 
 - 2026-10-10T15:31:00Z [CODE] Added resolve_seven_inplace/apply_action_inplace for valid exclusively owned states; return same object and retain all arrays/RNG. Shared validation and mutation helpers keep functional APIs independent and browser behavior unchanged. Reuse pending counts as sum output (valid total <=95); convert each selected tuple once for hand/bank updates. No state fields, scratch API, dependency, or RNG/board contract changed.
 
@@ -42,6 +46,8 @@
 
 ## [DISCOVERIES]
 
+- 2026-10-10T16:09:39Z [TOOL] Minimal-game stalemate: four-seat random seed 3 exhausted all roads/cities at VP [8,8,9,9]; fully funded probes expose no legal building action, and scores remain through 100000 steps. Baseline cap raises; benchmark marks capped runs without invented winners. Future RL must distinguish truncation from true terminal wins. Default four-seat benchmark caps 3/10 seeds; separate completing workload avoids conflating throughput.
+
 - 2026-10-10T15:31:00Z [TOOL] New benchmark_engine: Python 3.14.7/NumPy 2.4.6, 4 seats, seven warmed alternating 10000-operation batches with identical prebuilt state pools. Functional/in-place medians: seven 68.07/14.11 us (4.82x), discard 62.74/11.85 us (5.29x), seven+three choices 284.14/59.22 us (4.80x); full copy 45.85 us. Preparation/reset/validation/inference excluded; not game/RL throughput. A persistent count-buffer probe saved only ~0.7 us over one conversion; avoid its added ownership/API complexity.
 
 - 2026-10-10T14:56:07Z [TOOL] Main-project ML assessment: Python 3.14.7/NumPy 2.4.6, seven alternating warmed 10000-operation batches measured median full copy 49.14 us, eight-array-only copies 4.74 us, RNG-only clone 39.99 us, fixed-fixture discard including copy 83.92 us, explicit debug validation 350.85 us. Component timings are not additive and are not full-game/training throughput. RL modules remain empty; exclusive-owner in-place rollout steps and batched buffers/inference are proposed, not implemented. No engine source changed.
@@ -55,6 +61,8 @@
 - 2026-10-09T05:04:47Z [TOOL] Python 3.14.7/NumPy 2.4.6 warmed seven-batch medians: supplied-board state initialization 13.88 us, seeded new_game 53.86 us, independent copy 38.98 us. Paired copy cleanup 51.88 to 39.73 us (23.4% less time) avoids unused RNG reseeding and dynamic field lookups. Array payload is 235/250 bytes for 3/4 players, excluding headers/RNG/shared board; measurements exclude imports, validation, and gameplay.
 
 ## [OUTCOMES]
+
+- 2026-10-10T16:09:39Z [TOOL] Stage 4 minimal playable engine complete in main: checks image builds; 529 Python tests pass in 26.39s, 21 current JavaScript tests pass via mounted main source, lint/33-file formatting/compilation/pip/whitespace and six documented Python examples pass. Includes 100 setups, phase/action rejections, scarcity/connectivity/port/theft/win cases, full copy/in-place replay and cap regression. Five paired warmed gameplay batches: completed four-seat seeds 0-2, 3183 actions, 9390/16528 actions/s (1.76x); three-seat seeds 0-9, 12968 actions, 10080/19469 (1.93x), all complete; four-seat default mixed workload 38973 actions, 9644/17817 (1.85x), 7 complete/3 cap. Includes reset/legal queries/random policy, excludes neural inference/training. README/AGENTS and docs/stage-four-engine.md plus impacted historical docs updated; browser remains board/discard demo. Next Stage 5 broader randomized validation/reachability/replay/cap reporting; observation/reward/masks and training remain later. Supersedes prior partial Stage 4 boundary.
 
 - 2026-10-10T15:31:00Z [TOOL] Owned-transition increment complete in main: checks image built; 415 Python tests pass in 18.07s, including 700 varied equivalence rounds, no-copy thresholds/95-card hands, identities, RNG continuation and rejection preservation; lint/30-file format/compilation/dependency checks pass. 21 current JavaScript tests pass through read-only main mount into existing Node image; fresh Node-target build hit registry metadata timeout. README/AGENTS/manual-discard contract and docs/engine-optimization.md document APIs, example, benchmark and limits. Full gameplay/training remain later work.
 
