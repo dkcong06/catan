@@ -1,0 +1,10 @@
+.git
+.agent
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.venv
+tmp
+assets
+*.pdf
+generate_guide.py

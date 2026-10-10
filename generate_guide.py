@@ -120,10 +120,7 @@ def h3(t): F.append(Paragraph(t, styles["H3"]))
 def p(t): F.append(Paragraph(t, styles["Body"]))
 def note(t): F.append(Paragraph("<b>Tip&nbsp;&nbsp;</b>" + t, styles["Note"]))
 def code(t): F.append(Preformatted(t.rstrip("\n"), styles["CodeBlock"]))
-def spacer(x=6): F.append(Spacer(1, x))
 def pb(): F.append(PageBreak())
-def hr(): F.append(HRFlowable(width="100%", thickness=0.6, color=RULE,
-                              spaceBefore=6, spaceAfter=10))
 
 
 def bullets(items):

@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Catan Board</title>
+    <style>
+      :root {
+        color: #1e293b;
+        background: #f8fafc;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      main {
+        box-sizing: border-box;
+        margin: 0 auto;
+        max-width: 960px;
+        padding: 48px 24px;
+      }
+
+      h1,
+      h2,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        font-size: clamp(2rem, 5vw, 3.75rem);
+        letter-spacing: -0.045em;
+        margin-bottom: 12px;
+      }
+
+      .intro {
+        color: #475569;
+        font-size: 1.125rem;
+        line-height: 1.6;
+        max-width: 42rem;
+      }
+
+      .board {
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 20px;
+        box-shadow: 0 16px 40px rgb(15 23 42 / 8%);
+        margin-top: 32px;
+        padding: 24px;
+      }
+
+      h2 {
+        font-size: 1.125rem;
+        margin-bottom: 4px;
+      }
+
+      .status,
+      .legend {
+        color: #64748b;
+        line-height: 1.5;
+      }
+
+      canvas {
+        display: block;
+        margin: 20px auto;
+        max-width: 100%;
+      }
+
+      .legend {
+        font-size: 0.9rem;
+        margin-bottom: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Catan board</h1>
+      <p class="intro">
+        A reproducible base-game layout with 19 tiles, 54 vertices, and 72 edges.
+        Colors show resources; number tokens show which dice rolls produce them.
+      </p>
+
+      <section class="board" aria-labelledby="board-title">
+        <h2 id="board-title">Board setup (seed 0)</h2>
+        <p class="status" id="status">Loading board...</p>
+        <canvas
+          id="board-canvas"
+          aria-label="Catan board with resource tiles, number tokens, robber, vertices, and edges"
+        ></canvas>
+        <p class="legend">
+          R marks the robber on the desert. Labels t, v, and e identify tiles,
+          vertices, and edges. Ports and the restriction on adjacent 6/8 tokens
+          are deferred.
+        </p>
+      </section>
+    </main>
+
+    <script>
+      const HEX_SIZE = 54;
+      const PADDING = 38;
+      const canvas = document.getElementById("board-canvas");
+      const context = canvas.getContext("2d");
+      const status = document.getElementById("status");
+      const RESOURCE_COLORS = {
+        wood: "#7bab56", sheep: "#b7d87a", wheat: "#f0cc63",
+        brick: "#d99166", ore: "#93a3b5", desert: "#eadbb2",
+      };
+
+      function drawBoard(board) {
+        const xValues = board.vertex_positions.map(([x]) => x * HEX_SIZE);
+        const yValues = board.vertex_positions.map(([, y]) => y * HEX_SIZE);
+        const minX = Math.min(...xValues) - PADDING;
+        const maxX = Math.max(...xValues) + PADDING;
+        const minY = Math.min(...yValues) - PADDING;
+        const maxY = Math.max(...yValues) + PADDING;
+        const width = maxX - minX;
+        const height = maxY - minY;
+        const pixelRatio = window.devicePixelRatio || 1;
+
+        canvas.width = Math.ceil(width * pixelRatio);
+        canvas.height = Math.ceil(height * pixelRatio);
+        canvas.style.aspectRatio = width + " / " + height;
+        canvas.style.width = "100%";
+        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        context.clearRect(0, 0, width, height);
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+
+        const project = ([x, y]) => ({
+          x: x * HEX_SIZE - minX,
+          y: y * HEX_SIZE - minY,
+        });
+        const vertices = board.vertex_positions.map(project);
+        board.tile_vertices.forEach((corners, tileId) => {
+          context.beginPath();
+          corners.forEach((vertexId, cornerId) => {
+            const { x, y } = vertices[vertexId];
+            if (cornerId === 0) context.moveTo(x, y);
+            else context.lineTo(x, y);
+          });
+          context.closePath();
+          context.fillStyle = RESOURCE_COLORS[board.resources[tileId]];
+          context.fill();
+
+          const center = project(board.tile_positions[tileId]);
+          context.fillStyle = "#1e293b";
+          context.font = "10px system-ui, sans-serif";
+          context.fillText("t" + tileId, center.x, center.y - 22);
+          context.font = "12px system-ui, sans-serif";
+          context.fillText(board.resources[tileId], center.x, center.y - 5);
+          const token = board.numbers[tileId];
+          context.fillStyle = token === 6 || token === 8 ? "#991b1b" : "#1e293b";
+          context.font = "bold 18px system-ui, sans-serif";
+          context.fillText(
+            tileId === board.robber_tile ? "R" : token,
+            center.x, center.y + 15
+          );
+        });
+
+        context.strokeStyle = "#475569";
+        context.lineWidth = 1.5;
+        board.edge_vertices.forEach(([first, second]) => {
+          context.beginPath();
+          context.moveTo(vertices[first].x, vertices[first].y);
+          context.lineTo(vertices[second].x, vertices[second].y);
+          context.stroke();
+        });
+        context.font = "9px system-ui, sans-serif";
+        board.edge_positions.forEach((position, edgeId) => {
+          const { x, y } = project(position);
+          context.fillStyle = "#ffffff";
+          context.fillRect(x - 9, y - 5, 18, 10);
+          context.fillStyle = "#475569";
+          context.fillText("e" + edgeId, x, y);
+        });
+        vertices.forEach(({ x, y }, vertexId) => {
+          context.beginPath();
+          context.arc(x, y, 3, 0, Math.PI * 2);
+          context.fillStyle = "#ffffff";
+          context.fill();
+          context.stroke();
+          context.fillStyle = "#1e3a8a";
+          context.fillText("v" + vertexId, x + 9, y - 8);
+        });
+      }
+
+      async function loadBoard() {
+        const response = await fetch("/api/board", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("The board could not be loaded.");
+        }
+
+        const board = await response.json();
+        drawBoard(board);
+        status.textContent = board.tile_positions.length + " tiles, "
+          + board.vertex_positions.length + " vertices, "
+          + board.edge_positions.length + " edges";
+      }
+
+      loadBoard().catch((error) => {
+        status.textContent = error.message;
+      });
+    </script>
+  </body>
+</html>
