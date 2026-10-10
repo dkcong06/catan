@@ -5,8 +5,22 @@
 - Run tests: `docker run --rm catan-checks`
 - Run lint: `docker run --rm catan-checks python -m ruff check catan rl scripts tests`
 - Check formatting: `docker run --rm catan-checks python -m ruff format --check catan rl scripts tests`
+- Test viewer JavaScript: `docker build --target viewer-checks -t catan-viewer-checks .`, then `docker run --rm catan-viewer-checks`. This separate Node target executes the inline script with controlled DOM/canvas/fetch adapters; verify appearance separately in a browser.
 - Check the standalone guide generator with a read-only mount: `docker run --rm --mount "type=bind,source=${PWD}/generate_guide.py,target=/guide.py,readonly" catan-checks python -m ruff check --select F --no-cache /guide.py`. Its existing document layout code is outside the application formatter scope.
 - Keep static geometry immutable and generated once. Preserve tile, vertex, and edge ID ordering when optimizing.
+- Enforce no edge-adjacent red tokens (6/6, 6/8, or 8/8). Keep nine fixed separated coastal port slots with four generic ports and one per resource; use the caller's RNG for all setup randomness.
+- Reproduce setup measurements with `docker run --rm catan-checks python -m scripts.benchmark_board`; compare samplers in the same environment, and do not infer gameplay throughput from setup timings.
+- Run the container viewer with `docker run --rm -p 127.0.0.1:8000:8000 catan-checks python -m scripts.board_viewer --host 0.0.0.0 --no-browser`.
 - Keep the engine and tile viewer free of ML dependencies until implemented features need them.
+- NumPy is required by state/engine. Keep board/viewer module imports and board GET routes stdlib-only; import the NumPy discard demo lazily on its POST routes. Keep PyTorch out of the engine.
+- Mutable state copies must isolate every array and the complete RNG while sharing immutable Board/BoardGeometry. Include new fields in copying, equality, invariants, and isolation tests.
+- Resource arrays use int16; owners/buildings/pieces use int8. Keep ownership sentinel -1 and building codes 0/1/2. Add no duplicate mutable port-access cache.
+- Reproduce state measurements with `docker run --rm catan-checks python -m scripts.benchmark_state`; array payload sizes exclude object/RNG overhead, and construction/copy timings are not gameplay throughput.
+- Run the expanded board/state stress gate with `docker run --rm catan-checks python -m scripts.stress_foundations`; benchmark cache/equality/ports/previews with `python -m scripts.benchmark_foundations` in the same container. Run performance batches without competing stress/test jobs.
+- Preserve the geometry and 1,000-board/RNG compatibility fingerprints when optimizing. Changing their expected values requires an intentional, documented change in ID ordering or seeded setup behavior.
+- Preview geometry is encoded once; retain the flat JSON schema and bounded per-request state. Normalize numeric UI seeds and keep obsolete responses from overwriting newer requests.
+- Manual discards snapshot half the hand (rounded down) only when its total exceeds seven. Keep the roller in `current_player`; derive `discard_player` from pending counts. Do not choose cards automatically or recompute a completed player's discard. Finish all choices before `ROBBER_MOVE`.
+- Functional transitions validate DiscardAction before copying and preserve source arrays/RNG on accepted and rejected choices. Optional *_inplace transitions require valid exclusively owned state, return the same object, retain array/RNG identities, and reject illegal choices before mutation. Both paths share validation/mutation logic; browser sessions retain functional calls. Add discard state fields to copying/equality/invariant gates. Browser demo sessions are bounded and revision checked; sample hands are not full gameplay.
+- Compare transition paths with `docker run --rm catan-checks python -m scripts.benchmark_engine` (optional --players 3, --iterations, --repeats). Run without competing check/stress jobs. Both paths use identical prebuilt state pools; fixture allocation/reset and validation are excluded. Fixed seven/discard timings are not complete-game or RL throughput.
 - Keep the guide PDF, its generator, and diagram assets as documentation sources. Regenerate the PDF only when requested.
 - Maintain `.agent/CONTINUITY.md` for material changes and verification results.

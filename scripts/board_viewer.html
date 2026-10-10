@@ -71,6 +71,25 @@
         font-size: 0.9rem;
         margin-bottom: 0;
       }
+
+      form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin: 20px 0;
+      }
+
+      input, button {
+        border: 1px solid #94a3b8;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font: inherit;
+      }
+
+      input { width: 9rem; }
+      button { cursor: pointer; background: #e2e8f0; color: #1e293b; }
+      button[type="submit"] { background: #1e3a8a; color: white; }
     </style>
   </head>
   <body>
@@ -80,36 +99,46 @@
         A reproducible base-game layout with 19 tiles, 54 vertices, and 72 edges.
         Colors show resources; number tokens show which dice rolls produce them.
       </p>
+      <p><a href="/discards">Try manual discards after a seven →</a></p>
 
       <section class="board" aria-labelledby="board-title">
         <h2 id="board-title">Board setup (seed 0)</h2>
-        <p class="status" id="status">Loading board...</p>
+        <form id="seed-form">
+          <label for="seed">Seed</label>
+          <input id="seed" type="number" min="0" max="4294967295" step="1" value="0" required>
+          <button type="submit">Generate board</button>
+          <button type="button" id="random-seed">Random seed</button>
+        </form>
+        <p class="status" id="status" role="status">Loading board...</p>
         <canvas
           id="board-canvas"
-          aria-label="Catan board with resource tiles, number tokens, robber, vertices, and edges"
+          aria-label="Catan board with resource tiles, number tokens, robber, vertices, edges, and ports"
         ></canvas>
         <p class="legend">
           R marks the robber on the desert. Labels t, v, and e identify tiles,
-          vertices, and edges. Ports and the restriction on adjacent 6/8 tokens
-          are deferred.
+          vertices, and edges. Red 6/8 tokens never touch. Each coastal port
+          connects to two vertices: 3:1 for any resource, or 2:1 for its named resource.
         </p>
       </section>
     </main>
 
     <script>
       const HEX_SIZE = 54;
-      const PADDING = 38;
+      const PADDING = 44;
       const canvas = document.getElementById("board-canvas");
       const context = canvas.getContext("2d");
       const status = document.getElementById("status");
+      const seedInput = document.getElementById("seed");
+      let pendingRequest;
       const RESOURCE_COLORS = {
         wood: "#7bab56", sheep: "#b7d87a", wheat: "#f0cc63",
         brick: "#d99166", ore: "#93a3b5", desert: "#eadbb2",
       };
 
       function drawBoard(board) {
-        const xValues = board.vertex_positions.map(([x]) => x * HEX_SIZE);
-        const yValues = board.vertex_positions.map(([, y]) => y * HEX_SIZE);
+        const positions = [...board.vertex_positions, ...board.port_positions];
+        const xValues = positions.map(([x]) => x * HEX_SIZE);
+        const yValues = positions.map(([, y]) => y * HEX_SIZE);
         const minX = Math.min(...xValues) - PADDING;
         const maxX = Math.max(...xValues) + PADDING;
         const minY = Math.min(...yValues) - PADDING;
@@ -174,6 +203,27 @@
           context.fillStyle = "#475569";
           context.fillText("e" + edgeId, x, y);
         });
+        board.ports.forEach((port, portId) => {
+          const { x, y } = project(board.port_positions[portId]);
+          context.strokeStyle = "#64748b";
+          context.lineWidth = 1;
+          board.port_vertices[portId].forEach((vertexId) => {
+            context.beginPath();
+            context.moveTo(x, y);
+            context.lineTo(vertices[vertexId].x, vertices[vertexId].y);
+            context.stroke();
+          });
+          context.fillStyle = RESOURCE_COLORS[port.type] || "#e2e8f0";
+          context.fillRect(x - 33, y - 17, 66, 34);
+          context.strokeRect(x - 33, y - 17, 66, 34);
+          context.fillStyle = "#1e293b";
+          context.font = "bold 12px system-ui, sans-serif";
+          context.fillText(port.ratio + ":1", x, y - 6);
+          context.font = "10px system-ui, sans-serif";
+          context.fillText(port.type === "generic" ? "any" : port.type, x, y + 8);
+        });
+        context.strokeStyle = "#475569";
+        context.font = "9px system-ui, sans-serif";
         vertices.forEach(({ x, y }, vertexId) => {
           context.beginPath();
           context.arc(x, y, 3, 0, Math.PI * 2);
@@ -186,21 +236,48 @@
       }
 
       async function loadBoard() {
-        const response = await fetch("/api/board", { cache: "no-store" });
+        const seed = seedInput.valueAsNumber;
+        if (!Number.isInteger(seed) || seed < 0 || seed > 4294967295) {
+          throw new Error("Enter a seed from 0 to 4294967295.");
+        }
+        if (pendingRequest) pendingRequest.abort();
+        const request = new AbortController();
+        pendingRequest = request;
+        status.textContent = "Loading board...";
+        // Normalize valid numeric input (including 1e3) to the API's integer syntax.
+        const response = await fetch("/api/board?seed=" + seed, {
+          cache: "no-store", signal: request.signal,
+        });
+        if (request.signal.aborted) return;
         if (!response.ok) {
           throw new Error("The board could not be loaded.");
         }
 
         const board = await response.json();
+        if (request.signal.aborted) return;
         drawBoard(board);
+        document.getElementById("board-title").textContent = "Board setup (seed " + board.seed + ")";
         status.textContent = board.tile_positions.length + " tiles, "
           + board.vertex_positions.length + " vertices, "
-          + board.edge_positions.length + " edges";
+          + board.edge_positions.length + " edges, "
+          + board.ports.length + " ports";
       }
 
-      loadBoard().catch((error) => {
-        status.textContent = error.message;
+      function refreshBoard() {
+        loadBoard().catch((error) => {
+          if (error.name !== "AbortError") status.textContent = error.message;
+        });
+      }
+
+      document.getElementById("seed-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        refreshBoard();
       });
+      document.getElementById("random-seed").addEventListener("click", () => {
+        seedInput.value = crypto.getRandomValues(new Uint32Array(1))[0];
+        refreshBoard();
+      });
+      refreshBoard();
     </script>
   </body>
 </html>

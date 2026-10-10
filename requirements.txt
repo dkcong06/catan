@@ -1,3 +1,5 @@
-# Development tools; the geometry engine and viewer use only the standard library.
+# Runtime dependency for compact game state; the board/viewer remain stdlib-only.
+numpy==2.4.6
+# Development tools.
 pytest==9.1.1
 ruff==0.15.14

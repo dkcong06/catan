@@ -5,6 +5,7 @@
 .ruff_cache
 .venv
 tmp
+output
 assets
 *.pdf
 generate_guide.py

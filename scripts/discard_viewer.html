@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Catan · Manual discards</title>
+  <style>
+    :root { color: #1e293b; background: #f8fafc; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { margin: 0; }
+    main { max-width: 960px; margin: auto; padding: 36px 24px; }
+    a { color: #0369a1; }
+    h1 { font-size: clamp(2rem, 5vw, 3rem); letter-spacing: -.04em; margin-bottom: 12px; }
+    h2 { margin: 0 0 8px; font-size: 1.35rem; }
+    p { line-height: 1.6; }
+    .intro, .muted { color: #475569; }
+    .panel { background: white; border: 1px solid #cbd5e1; border-radius: 18px; padding: 24px; margin-top: 24px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+    button, input { font: inherit; border: 1px solid #94a3b8; border-radius: 8px; padding: 10px 12px; }
+    button { background: #0f172a; color: white; cursor: pointer; }
+    button.secondary { background: white; color: #1e293b; }
+    button:disabled { opacity: .45; cursor: default; }
+    button:focus-visible, input:focus-visible { outline: 3px solid #38bdf8; outline-offset: 3px; }
+    .players { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 0; list-style: none; }
+    .players li { border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px; }
+    .players li.active { border: 2px solid #0284c7; background: #f0f9ff; }
+    .players span { display: block; font-size: .9rem; margin-top: 5px; color: #475569; }
+    fieldset { margin: 20px 0; border: 0; padding: 0; min-width: 0; }
+    legend { font-weight: 600; margin-bottom: 12px; }
+    .resources { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+    .resource { border: 1px solid #cbd5e1; border-top: 5px solid var(--resource); border-radius: 10px; padding: 14px; }
+    .resource label { display: block; font-weight: 600; }
+    .resource span { display: block; color: #475569; font-size: .9rem; margin: 10px 0; }
+    .resource input { box-sizing: border-box; width: 100%; min-width: 0; background: white; }
+    .summary { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
+    #selection-count { font-weight: 600; }
+    #message { color: #b91c1c; min-height: 1.6em; margin-bottom: 0; }
+    #bank { font-size: .9rem; }
+    [hidden] { display: none !important; }
+    @media (max-width: 620px) {
+      main { padding: 24px 16px; }
+      .panel { padding: 18px; }
+      .players, .resources { grid-template-columns: repeat(2, 1fr); }
+      .summary button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <a href="/">← Board viewer</a>
+  <h1>Choose what to discard</h1>
+  <p class="intro">When a seven is rolled, every player with more than seven resource cards
+    returns half to the bank, rounded down. Each player chooses which cards to give up.</p>
+  <p class="muted">Rule demo with sample hands. Full dice play and robber movement are still being built.</p>
+  <div class="toolbar">
+    <button id="seven" type="button" disabled>Resolve a 7</button>
+    <button id="reset" type="button" class="secondary" disabled>Reset sample hands</button>
+  </div>
+  <section class="panel" aria-labelledby="phase-title">
+    <h2 id="phase-title">Loading sample hands…</h2>
+    <p id="phase-detail" class="muted" aria-live="polite"></p>
+    <ul class="players" aria-label="Player hands">
+      <li id="player-0"><strong>Player 1</strong><span id="player-status-0"></span></li>
+      <li id="player-1"><strong>Player 2</strong><span id="player-status-1"></span></li>
+      <li id="player-2"><strong>Player 3</strong><span id="player-status-2"></span></li>
+      <li id="player-3"><strong>Player 4</strong><span id="player-status-3"></span></li>
+    </ul>
+    <form id="discard-form" hidden>
+      <fieldset id="resource-choices" disabled>
+        <legend>Cards to return to the bank</legend>
+        <div class="resources">
+          <div class="resource" style="--resource: #15803d"><label for="choose-0">Wood</label><span id="held-0"></span><input id="choose-0" type="number" min="0" step="1" value="0" required></div>
+          <div class="resource" style="--resource: #65a30d"><label for="choose-1">Sheep</label><span id="held-1"></span><input id="choose-1" type="number" min="0" step="1" value="0" required></div>
+          <div class="resource" style="--resource: #ca8a04"><label for="choose-2">Wheat</label><span id="held-2"></span><input id="choose-2" type="number" min="0" step="1" value="0" required></div>
+          <div class="resource" style="--resource: #c2410c"><label for="choose-3">Brick</label><span id="held-3"></span><input id="choose-3" type="number" min="0" step="1" value="0" required></div>
+          <div class="resource" style="--resource: #64748b"><label for="choose-4">Ore</label><span id="held-4"></span><input id="choose-4" type="number" min="0" step="1" value="0" required></div>
+        </div>
+      </fieldset>
+      <div class="summary"><output id="selection-count" aria-live="polite"></output><button id="confirm" type="submit" disabled>Confirm discard</button></div>
+    </form>
+    <p id="message" role="alert"></p>
+    <p id="bank" class="muted"></p>
+  </section>
+</main>
+<script>
+  const el = (id) => document.getElementById(id);
+  const names = ["wood", "sheep", "wheat", "brick", "ore"];
+  const inputs = names.map((_, i) => el(`choose-${i}`));
+  let state = null;
+  let busy = false;
+
+  function selection() {
+    const counts = inputs.map((input) => input.valueAsNumber);
+    const actor = state?.discard_player;
+    const valid = state?.phase === "DISCARD" && counts.every((n, i) =>
+      Number.isInteger(n) && n >= 0 && n <= state.hands[actor][i]);
+    const total = counts.reduce((sum, n) => sum + n, 0);
+    const required = actor == null ? 0 : state.discard_pending[actor];
+    el("selection-count").textContent = valid
+      ? `${total} of ${required} cards selected`
+      : "Enter whole counts between zero and the cards in hand.";
+    el("confirm").disabled = busy || !valid || total !== required;
+    return { counts, valid: valid && total === required };
+  }
+
+  function render(clearChoices = false) {
+    el("reset").disabled = busy;
+    el("seven").disabled = busy || state?.phase !== "ROLL";
+    const discarding = state?.phase === "DISCARD";
+    el("discard-form").hidden = !discarding;
+    el("resource-choices").disabled = busy || !discarding;
+    if (!state) return;
+    const roller = state.current_player + 1;
+    if (state.phase === "ROLL") {
+      el("phase-title").textContent = "Sample hands are ready";
+      el("phase-detail").textContent = `Player ${roller}'s turn. Resolve a seven to begin discarding. Player 2 has exactly seven cards and keeps them.`;
+    } else if (discarding) {
+      const actor = state.discard_player;
+      el("phase-title").textContent = `Player ${actor + 1}: choose ${state.discard_pending[actor]} cards`;
+      el("phase-detail").textContent = `Player ${roller}'s turn continues. All pending players must finish discarding before the robber moves.`;
+      inputs.forEach((input, i) => {
+        const held = state.hands[actor][i];
+        el(`held-${i}`).textContent = `In hand: ${held}`;
+        input.max = String(held);
+        if (clearChoices) input.value = "0";
+      });
+      selection();
+    } else {
+      el("phase-title").textContent = "All discards complete";
+      el("phase-detail").textContent = `Player ${roller} can now move the robber. Robber movement and stealing will be added as gameplay develops.`;
+    }
+    state.hands.forEach((hand, player) => {
+      el(`player-${player}`).classList.toggle("active", discarding && player === state.discard_player);
+      const owed = state.discard_pending[player];
+      el(`player-status-${player}`).textContent = `${hand.reduce((a, b) => a + b, 0)} cards${owed ? ` · discard ${owed}` : ""}`;
+    });
+    el("bank").textContent = `Bank: ${state.bank.map((n, i) => `${n} ${names[i]}`).join(" · ")}`;
+  }
+
+  async function request(route, choice = {}) {
+    if (busy) return;
+    busy = true;
+    el("message").textContent = "";
+    render();
+    try {
+      const payload = route === "new" ? { seed: 0 } : {
+        session: state.session, revision: state.revision, ...choice,
+      };
+      const response = await fetch(`/api/discard/${route}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        if (data.current) { state = data.current; render(true); }
+        throw new Error(data.error || "The choice could not be saved.");
+      }
+      state = data;
+      render(true);
+    } catch (error) {
+      el("message").textContent = error.message || "Connection failed. Retry your choice or reset the sample hands.";
+    } finally {
+      busy = false;
+      render();
+    }
+  }
+
+  inputs.forEach((input) => input.addEventListener("input", selection));
+  el("seven").addEventListener("click", () => request("seven"));
+  el("reset").addEventListener("click", () => request("new"));
+  el("discard-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const chosen = selection();
+    if (chosen.valid) request("choose", { player: state.discard_player, resources: chosen.counts });
+  });
+  request("new");
+</script>
+</body>
+</html>
