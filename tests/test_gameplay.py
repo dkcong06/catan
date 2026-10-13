@@ -1,4 +1,4 @@
-from dataclasses import fields
+from dataclasses import fields, replace
 from itertools import islice, product
 from random import Random, getstate
 
@@ -16,7 +16,7 @@ from catan.actions import (
     SettlementAction,
     StealAction,
 )
-from catan.board import Resource
+from catan.board import PortType, Resource
 from catan.engine import (
     apply_action,
     apply_action_inplace,
@@ -531,31 +531,11 @@ def test_bounded_random_games_and_every_yielded_action_is_accepted(players):
         play_random_game(0, players, max_actions=0)
 
 
-def test_minimal_game_stalemate_is_capped_without_inventing_a_winner():
-    state = new_game(3, 4)
-    policy = Random(3)
-    for _ in range(10000):
-        apply_action_inplace(state, choose_action(state, policy))
-    state.validate()
-    assert not is_terminal(state)
-    assert winner(state) is None
-    assert max(state.vp) < 10
-    assert not state.pieces_left[:, 1:].any()  # All cities and roads used.
-    for player in range(4):
-        probe = state.copy()
-        probe.phase = Phase.MAIN
-        probe.current_player = player
-        probe.discard_pending[:] = 0
-        probe.hands[:] = 0
-        probe.hands[player] = 10
-        probe.bank[:] = 9
-        probe.validate()
-        assert not any(
-            isinstance(a, (SettlementAction, RoadAction, CityAction))
-            for a in legal_actions(probe)
-        )
-    with pytest.raises(RuntimeError, match="did not finish"):
-        play_random_game(3, 4, max_actions=10000)
+def test_former_minimal_stalemate_seed_finishes_with_cards_and_awards():
+    # Historical seed 3 stalled when only building VP existed. Expanded rules
+    # intentionally change action ordering/RNG consumption and this trajectory.
+    state = play_random_game(3, 4, max_actions=10000)
+    assert is_terminal(state) and state.vp[winner(state)] >= 10
 
 
 @pytest.mark.parametrize(
@@ -597,3 +577,70 @@ def test_robber_lists_multiple_victims_once_each_even_with_two_buildings():
     apply_action_inplace(state, RobberMoveAction(tile))
     assert tuple(legal_actions(state)) == (StealAction(1), StealAction(2))
     state.validate()
+
+
+@pytest.mark.parametrize("players", (3, 4))
+def test_pruned_settlement_queries_match_every_direct_placement(players):
+    state = new_game(4, players)
+    policy = Random(4)
+    for index in range(1500):
+        if index > players * 4 and index % 200 == 0:
+            for player in range(players):
+                probe = state.copy()
+                probe.current_player = player
+                probe.phase = Phase.MAIN
+                probe.resume_phase = None
+                probe.free_roads_remaining = 0
+                probe.development_new[:] = 0
+                probe.discard_pending[:] = 0
+                probe.hands[:] = 0
+                probe.hands[player] = 5
+                probe.bank[:] = 14
+                probe.validate()
+                before = probe.copy()
+                expected = []
+                # Exhaustive direct validation is independent of query pruning.
+                for vertex in range(54):
+                    action = SettlementAction(vertex)
+                    try:
+                        apply_action(probe, action)
+                    except ValueError:
+                        continue
+                    expected.append(action)
+                actual = [
+                    a for a in legal_actions(probe) if isinstance(a, SettlementAction)
+                ]
+                assert actual == expected  # Including ascending ID order.
+                assert probe == before
+        apply_action_inplace(state, choose_action(state, policy))
+        if is_terminal(state):
+            break
+
+
+@pytest.mark.parametrize("generic_first", (True, False))
+def test_combined_ports_keep_best_ratio_and_stable_trade_order(generic_first):
+    state = empty_main()
+    ports = [PortType.GENERIC, PortType.WOOD, *map(PortType, range(1, 5))]
+    ports += [PortType.GENERIC] * 3
+    if not generic_first:
+        ports[0], ports[1] = ports[1], ports[0]
+    state.board = replace(state.board, ports=tuple(ports))
+    building(state, state.board.geometry.port_vertices[0][0], 0)
+    building(state, state.board.geometry.port_vertices[1][1], 0, 2)
+    fund(state, 0, (2, 3, 3, 3, 3))
+    state.validate()
+    expected = [BankTradeAction(g, r) for g in range(5) for r in range(5) if g != r]
+    actual = [a for a in legal_actions(state) if isinstance(a, BankTradeAction)]
+    assert actual == expected
+    for action in actual:
+        following = apply_action(state, action)
+        ratio = 2 if action.give == 0 else 3
+        assert following.hands[0, action.give] == state.hands[0, action.give] - ratio
+        assert following.hands[0, action.receive] == state.hands[0, action.receive] + 1
+        following.validate()
+    state.hands[0, 0] -= 1
+    state.bank[0] += 1
+    rejected(state, BankTradeAction(0, 1))
+    assert not any(
+        isinstance(a, BankTradeAction) and a.give == 0 for a in legal_actions(state)
+    )

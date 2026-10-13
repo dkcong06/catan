@@ -23,6 +23,12 @@ def test_new_game_initializes_every_quantity(players: int) -> None:
         "edge_owner": (np.int8, np.full(72, -1, dtype=np.int8)),
         "bank": (np.int16, np.full(5, 19, dtype=np.int16)),
         "discard_pending": (np.int16, np.zeros(players, dtype=np.int16)),
+        "development": (np.int8, np.zeros((players, 5), dtype=np.int8)),
+        "development_new": (np.int8, np.zeros((players, 5), dtype=np.int8)),
+        "development_deck": (np.int8, np.array([14, 5, 2, 2, 2], dtype=np.int8)),
+        "development_played": (np.int8, np.zeros(5, dtype=np.int8)),
+        "knights_played": (np.int8, np.zeros(players, dtype=np.int8)),
+        "road_lengths": (np.int8, np.zeros(players, dtype=np.int8)),
     }
     for name, (dtype, values) in expected.items():
         actual = getattr(state, name)

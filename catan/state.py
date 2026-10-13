@@ -9,10 +9,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 from catan.board import Board, PortType, make_board
+from catan.cards import DEVELOPMENT_SUPPLY, DevelopmentCard
 
 
 class Phase(IntEnum):
-    """Explicit decisions for setup and the minimal game's turn sequence."""
+    """Explicit decisions for setup and the game's turn sequence."""
 
     SETUP_SETTLEMENT = 1
     SETUP_ROAD = 2
@@ -22,6 +23,7 @@ class Phase(IntEnum):
     MAIN = 6
     GAME_OVER = 7
     DISCARD = 8  # Append to preserve the existing phase values.
+    ROAD_BUILDING = 9
 
 
 _PIECE_SUPPLY = (5, 4, 15)  # settlement, city, road
@@ -35,6 +37,12 @@ _ARRAY_FIELDS = (
     "edge_owner",
     "bank",
     "discard_pending",
+    "development",
+    "development_new",
+    "development_deck",
+    "development_played",
+    "knights_played",
+    "road_lengths",
 )
 _SCALAR_FIELDS = (
     "n_players",
@@ -44,6 +52,11 @@ _SCALAR_FIELDS = (
     "last_roll",
     "setup_index",
     "setup_vertex",
+    "longest_road_owner",
+    "largest_army_owner",
+    "development_used",
+    "free_roads_remaining",
+    "resume_phase",
 )
 
 
@@ -98,6 +111,17 @@ class GameState:
     edge_owner: NDArray[np.int8] = field(init=False, repr=False)
     bank: NDArray[np.int16] = field(init=False, repr=False)
     discard_pending: NDArray[np.int16] = field(init=False, repr=False)
+    development: NDArray[np.int8] = field(init=False, repr=False)
+    development_new: NDArray[np.int8] = field(init=False, repr=False)
+    development_deck: NDArray[np.int8] = field(init=False, repr=False)
+    development_played: NDArray[np.int8] = field(init=False, repr=False)
+    knights_played: NDArray[np.int8] = field(init=False, repr=False)
+    road_lengths: NDArray[np.int8] = field(init=False, repr=False)
+    longest_road_owner: int = field(init=False, default=-1)
+    largest_army_owner: int = field(init=False, default=-1)
+    development_used: bool = field(init=False, default=False)
+    free_roads_remaining: int = field(init=False, default=0)
+    resume_phase: Phase | None = field(init=False, default=None)
     robber_tile: int = field(init=False)
     current_player: int = field(init=False, default=0)
     phase: Phase = field(init=False, default=Phase.SETUP_SETTLEMENT)
@@ -124,6 +148,14 @@ class GameState:
         )
         self.bank = np.full(5, 19, dtype=np.int16)
         self.discard_pending = np.zeros(self.n_players, dtype=np.int16)
+        self.development = np.zeros((self.n_players, 5), dtype=np.int8)
+        self.development_new = np.zeros_like(self.development)
+        # Conditional weighted draws equal a shuffled hidden deck's distribution,
+        # with only five counters and no setup RNG draw or redundant deck cursor.
+        self.development_deck = np.array(DEVELOPMENT_SUPPLY, dtype=np.int8)
+        self.development_played = np.zeros(5, dtype=np.int8)
+        self.knights_played = np.zeros(self.n_players, dtype=np.int8)
+        self.road_lengths = np.zeros(self.n_players, dtype=np.int8)
         self.robber_tile = self.board.robber_tile
 
     @property
@@ -161,6 +193,11 @@ class GameState:
         clone.last_roll = self.last_roll
         clone.setup_index = self.setup_index
         clone.setup_vertex = self.setup_vertex
+        clone.longest_road_owner = self.longest_road_owner
+        clone.largest_army_owner = self.largest_army_owner
+        clone.development_used = self.development_used
+        clone.free_roads_remaining = self.free_roads_remaining
+        clone.resume_phase = self.resume_phase
         clone.hands = self.hands.copy()
         clone.vp = self.vp.copy()
         clone.pieces_left = self.pieces_left.copy()
@@ -169,6 +206,12 @@ class GameState:
         clone.edge_owner = self.edge_owner.copy()
         clone.bank = self.bank.copy()
         clone.discard_pending = self.discard_pending.copy()
+        clone.development = self.development.copy()
+        clone.development_new = self.development_new.copy()
+        clone.development_deck = self.development_deck.copy()
+        clone.development_played = self.development_played.copy()
+        clone.knights_played = self.knights_played.copy()
+        clone.road_lengths = self.road_lengths.copy()
         # Restore the complete RNG state before any draw; no unused reseeding.
         clone.rng = Random.__new__(Random)
         clone.rng.setstate(self.rng.getstate())
@@ -249,6 +292,12 @@ class GameState:
             ("edge_owner", (72,), np.int8),
             ("bank", (5,), np.int16),
             ("discard_pending", (n_players,), np.int16),
+            ("development", (n_players, 5), np.int8),
+            ("development_new", (n_players, 5), np.int8),
+            ("development_deck", (5,), np.int8),
+            ("development_played", (5,), np.int8),
+            ("knights_played", (n_players,), np.int8),
+            ("road_lengths", (n_players,), np.int8),
         )
         for name, shape, dtype in specifications:
             array = getattr(self, name)
@@ -260,34 +309,132 @@ class GameState:
                 raise ValueError(f"{name} has an invalid shape or dtype")
             if not array.flags.c_contiguous or not array.flags.writeable:
                 raise ValueError(f"{name} must be contiguous and writable")
-        if np.any(self.hands < 0) or np.any(self.bank < 0):
+        # These arrays contain at most 72 values. Convert once per debug check
+        # instead of allocating masks/reductions repeatedly for each player.
+        hands = self.hands.tolist()
+        bank = self.bank.tolist()
+        if any(count < 0 for hand in hands for count in hand) or any(
+            count < 0 for count in bank
+        ):
             raise ValueError("resource counts must be nonnegative")
-        if not np.all(self.hands.sum(axis=0) + self.bank == 19):
+        if any(
+            sum(hand[r] for hand in hands) + count != 19 for r, count in enumerate(bank)
+        ):
             raise ValueError("resource supply is not conserved")
-        if np.any(self.pieces_left < 0) or np.any(self.pieces_left > _PIECE_SUPPLY):
+        development = self.development.tolist()
+        fresh = self.development_new.tolist()
+        deck = self.development_deck.tolist()
+        played = self.development_played.tolist()
+        if any(c < 0 for row in development + fresh for c in row) or any(
+            c < 0 for c in deck + played
+        ):
+            raise ValueError("development card counts must be nonnegative")
+        if any(
+            new > held
+            for row, held_row in zip(fresh, development)
+            for new, held in zip(row, held_row)
+        ):
+            raise ValueError("new development cards exceed held cards")
+        if any(
+            sum(row[k] for row in development) + deck[k] + played[k] != supply
+            for k, supply in enumerate(DEVELOPMENT_SUPPLY)
+        ):
+            raise ValueError("development card supply is not conserved")
+        knights = self.knights_played.tolist()
+        lengths = self.road_lengths.tolist()
+        if (
+            any(not 0 <= count <= 14 for count in knights)
+            or sum(knights) != played[DevelopmentCard.KNIGHT]
+        ):
+            raise ValueError("played knight counts disagree")
+        if played[DevelopmentCard.VICTORY_POINT]:
+            raise ValueError("victory point cards remain held")
+        if any(not 0 <= count <= 15 for count in lengths):
+            raise ValueError("road lengths must be from 0 to 15")
+        for name, values, minimum in (
+            ("longest_road_owner", lengths, 5),
+            ("largest_army_owner", knights, 3),
+        ):
+            owner = _integer(getattr(self, name), name)
+            if not -1 <= owner < n_players:
+                raise ValueError(f"{name} is outside the game")
+            if owner != -1 and (
+                values[owner] < minimum or values[owner] != max(values)
+            ):
+                raise ValueError(f"{name} does not meet its award requirements")
+        if type(self.development_used) is not bool:
+            raise ValueError("development_used must be bool")
+        if any(any(row) for p, row in enumerate(fresh) if p != self.current_player):
+            raise ValueError("only the current turn retains newly bought cards")
+        remaining = _integer(self.free_roads_remaining, "free_roads_remaining")
+        if self.phase == Phase.ROAD_BUILDING:
+            if remaining not in (1, 2) or not self.development_used:
+                raise ValueError("ROAD_BUILDING requires free roads and a played card")
+        elif remaining != 0:
+            raise ValueError("free roads require ROAD_BUILDING phase")
+        if self.resume_phase is not None:
+            if self.resume_phase not in (Phase.ROLL, Phase.MAIN) or not isinstance(
+                self.resume_phase, Phase
+            ):
+                raise ValueError("resume_phase must be ROLL or MAIN")
+            if self.phase not in (
+                Phase.ROAD_BUILDING,
+                Phase.ROBBER_MOVE,
+                Phase.ROBBER_STEAL,
+                Phase.DISCARD,
+            ):
+                raise ValueError("resume_phase requires a card/robber/discard decision")
+        if self.phase == Phase.ROAD_BUILDING and self.resume_phase is None:
+            raise ValueError("free roads require a resume phase")
+        pieces = self.pieces_left.tolist()
+        if any(
+            not 0 <= count <= supply
+            for row in pieces
+            for count, supply in zip(row, _PIECE_SUPPLY)
+        ):
             raise ValueError("remaining piece counts are outside their supply")
-        for name in ("vertex_owner", "edge_owner"):
-            owners = getattr(self, name)
-            if np.any(owners < -1) or np.any(owners >= n_players):
+        vertex_owner = self.vertex_owner.tolist()
+        edge_owner = self.edge_owner.tolist()
+        for name, owners in (
+            ("vertex_owner", vertex_owner),
+            ("edge_owner", edge_owner),
+        ):
+            if any(not -1 <= owner < n_players for owner in owners):
                 raise ValueError(f"{name} contains an invalid owner")
-        if np.any(self.vertex_building < 0) or np.any(self.vertex_building > 2):
+        buildings = self.vertex_building.tolist()
+        if any(not 0 <= building <= 2 for building in buildings):
             raise ValueError("invalid building type")
-        if not np.array_equal(self.vertex_owner == -1, self.vertex_building == 0):
+        if any(
+            (owner == -1) != (building == 0)
+            for owner, building in zip(vertex_owner, buildings)
+        ):
             raise ValueError("building types disagree with vertex ownership")
-        for player in range(n_players):
-            owned = self.vertex_owner == player
-            settlements = np.count_nonzero(owned & (self.vertex_building == 1))
-            cities = np.count_nonzero(owned & (self.vertex_building == 2))
-            roads = np.count_nonzero(self.edge_owner == player)
-            if not np.array_equal(
-                self.pieces_left[player] + (settlements, cities, roads), _PIECE_SUPPLY
+        placed = [[0, 0, 0] for _ in range(n_players)]
+        for owner, building in zip(vertex_owner, buildings):
+            if owner != -1:
+                placed[owner][building - 1] += 1
+        for owner in edge_owner:
+            if owner != -1:
+                placed[owner][2] += 1
+        for player, (remaining, used) in enumerate(zip(pieces, placed)):
+            if any(
+                left + count != supply
+                for left, count, supply in zip(remaining, used, _PIECE_SUPPLY)
             ):
                 raise ValueError("placed and remaining pieces disagree")
-            if self.vp[player] != settlements + 2 * cities:
-                raise ValueError("victory points disagree with buildings")
-        occupied = self.vertex_building != 0
+            expected_vp = (
+                used[0]
+                + 2 * used[1]
+                + development[player][DevelopmentCard.VICTORY_POINT]
+                + 2 * (self.longest_road_owner == player)
+                + 2 * (self.largest_army_owner == player)
+            )
+            if self.vp[player] != expected_vp:
+                raise ValueError(
+                    "victory points disagree with buildings, cards and awards"
+                )
         if any(
-            occupied[first] and occupied[second]
+            buildings[first] and buildings[second]
             for first, second in self.board.geometry.edge_vertices
         ):
             raise ValueError("adjacent buildings violate the distance rule")
@@ -297,18 +444,18 @@ class GameState:
             raise ValueError("current_player is outside the game")
         if not isinstance(self.phase, Phase):
             raise ValueError("phase must be a Phase")
-        if np.any(self.discard_pending < 0):
+        pending = self.discard_pending.tolist()
+        if any(count < 0 for count in pending):
             raise ValueError("discard_pending must be nonnegative")
         if self.phase == Phase.DISCARD:
-            if self.last_roll != 7 or not np.any(self.discard_pending):
+            if self.last_roll != 7 or not any(pending):
                 raise ValueError("DISCARD requires a seven and pending discards")
-            totals = self.hands.sum(axis=1)
-            pending = self.discard_pending > 0
-            if np.any(totals[pending] <= 7) or np.any(
-                self.discard_pending[pending] != totals[pending] // 2
-            ):
-                raise ValueError("pending discard counts disagree with hands")
-        elif np.any(self.discard_pending):
+            for hand, required in zip(hands, pending):
+                if required > 0:
+                    total = sum(hand)
+                    if total <= 7 or required != total // 2:
+                        raise ValueError("pending discard counts disagree with hands")
+        elif any(pending):
             raise ValueError("pending discards require DISCARD phase")
         if (
             self.last_roll is not None

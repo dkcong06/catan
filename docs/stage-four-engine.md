@@ -1,12 +1,18 @@
 # Stage 4: minimal playable engine
 
+Historical milestone record. The 2026-10-11 [expanded engine and performance review](expanded-engine.md)
+supersedes earlier feature boundaries, array sizes, schema dimensions and current test counts below.
+Historical measurements retain their original workload and date. Training remains deferred.
+
+
 Implemented 2026-10-10 in the main Catan project. This follows the minimal rules
 in Section 4 of [the build guide](../Catan_RL_Guide.pdf), pages 10-11, with the
 existing user-selected manual discards and port setup retained. Bank trades also
 honor owned ports because their immutable metadata/access query already exists.
 Development cards, longest road, largest army, and negotiated player trades remain
 the guide's later expansions. No observation encoder, trainer, or ML dependency
-was added. The browser remains the board/manual-discard demo.
+was added in Stage 4. The subsequent [observation increment](representation-encoding.md)
+implements relative features separately. The browser remains the board/manual-discard demo.
 
 ## Engine interface
 
@@ -89,8 +95,8 @@ from catan.engine import winner
 from catan.players.random_agent import play_random_game
 
 state = play_random_game(0, n_players=4, max_actions=10_000, validate=True)
-assert winner(state) == 3
-assert state.vp[3] == 10
+assert winner(state) is not None
+assert state.vp[winner(state)] >= 10
 ```
 
 `choose_action(state, policy_rng)` is an explicit random agent. It uses a policy
@@ -114,7 +120,9 @@ three/four players. Geometry/board IDs and seeded setup are unchanged; ports and
 no adjacent 6/6, 6/8, or 8/8 retain their existing gates. The owned path avoids
 full-state/RNG copying. Existing pending storage is reused on sevens, selected
 counts are converted once, costs touch only relevant resources, and action objects
-are shared. Production allocates one small demand matrix only on ordinary rolls.
+are shared. The subsequent audit prunes settlement candidates to owned-road endpoints,
+checks trade affordability once per offered resource, derives port ratios directly,
+and uses small Python count lists for production instead of NumPy temporaries.
 No global scratch buffer, undo framework, network dependency, or host package was
 introduced.
 
@@ -163,7 +171,10 @@ selector tests remain green. Ruff lint/33-file format, compilation, dependency
 checks, and the checks image build pass. Current browser scripts were tested with
 a read-only main-source mount into the existing Node image; no UI change was made.
 
-Stage 5 is next: broader randomized rule validation and reachability/connectivity
-checks, replay/stalemate reporting across many seeds, and further profiling if it
-shows a bottleneck. Observation/reward/mask interfaces and parallel training come
+The subsequent [Stage 5 validation](stage-five-validation.md) adds continuous
+road-component/phase checks, deterministic many-seed win/cap reports, and measured
+validation optimizations. Observation/reward/mask interfaces and parallel training come
 after that gate. PDF/generator/assets and the state schema remain unchanged.
+
+The [Stages 1-4 audit](stages-1-4-audit.md) records subsequent optimizations,
+paired before/after measurements, cleanup, and verification at that milestone.

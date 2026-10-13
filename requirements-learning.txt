@@ -1,0 +1,2 @@
+# Optional model dependency; install only in the learning-checks container target.
+torch==2.14.1+cpu

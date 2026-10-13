@@ -1,5 +1,10 @@
 # Manual discards: first Phase 4 increment
 
+Historical milestone record. The 2026-10-11 [expanded engine and performance review](expanded-engine.md)
+supersedes earlier feature boundaries, array sizes, schema dimensions and current test counts below.
+Historical measurements retain their original workload and date. Training remains deferred.
+
+
 Implemented 2026-10-10 at the user's request. The engine and browser allow each
 affected player to choose which resource cards to return after a seven.
 This began as a focused increment. The [Stage 4 engine](stage-four-engine.md) now
@@ -51,7 +56,7 @@ callers must provide a valid state.
 
 ## Engine example
 
-Until setup and dice actions are implemented, construct a valid test fixture:
+For a focused known-seven example, construct a conserved test fixture:
 
 ```python
 from catan.actions import DiscardAction
@@ -115,7 +120,7 @@ Confirmation is enabled only for whole nonnegative counts within the hand and
 the exact required total. Each accepted choice clears controls for the next seat.
 The final screen reports that the original roller may now move the robber.
 **Reset sample hands** starts a new independent demo. The page explicitly labels
-this as a rule demo; it does not simulate unimplemented gameplay or hide hands.
+this as a rule demo; it ends after discards and displays the sample hands.
 
 The same local server serves three JSON POST routes:
 

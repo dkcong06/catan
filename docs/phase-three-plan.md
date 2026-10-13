@@ -1,5 +1,10 @@
 # Phase 3: modeling game state
 
+Historical milestone record. The 2026-10-11 [expanded engine and performance review](expanded-engine.md)
+supersedes earlier feature boundaries, array sizes, schema dimensions and current test counts below.
+Historical measurements retain their original workload and date. Training remains deferred.
+
+
 This plan paraphrases Section 3 of `Catan_RL_Guide.pdf` (pages 8-9), with
 implementation details chosen for this repository. Phase 2 is the immutable
 board foundation; Phase 3 introduces mutable state. Gameplay rules remain Phase 4.

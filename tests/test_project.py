@@ -4,7 +4,7 @@ import sys
 from subprocess import run
 
 
-def test_all_packages_and_scaffolds_import_without_machine_learning() -> None:
+def test_all_implemented_packages_import_without_machine_learning() -> None:
     script = """
 import importlib
 import pkgutil

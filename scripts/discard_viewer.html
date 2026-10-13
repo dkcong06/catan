@@ -50,7 +50,7 @@
   <h1>Choose what to discard</h1>
   <p class="intro">When a seven is rolled, every player with more than seven resource cards
     returns half to the bank, rounded down. Each player chooses which cards to give up.</p>
-  <p class="muted">Rule demo with sample hands. Full dice play and robber movement are still being built.</p>
+  <p class="muted">Rule demo with sample hands. This sample round ends once all discards are complete.</p>
   <div class="toolbar">
     <button id="seven" type="button" disabled>Resolve a 7</button>
     <button id="reset" type="button" class="secondary" disabled>Reset sample hands</button>
@@ -126,7 +126,7 @@
       selection();
     } else {
       el("phase-title").textContent = "All discards complete";
-      el("phase-detail").textContent = `Player ${roller} can now move the robber. Robber movement and stealing will be added as gameplay develops.`;
+      el("phase-detail").textContent = `Player ${roller} can now move the robber. All chosen cards have been returned to the bank.`;
     }
     state.hands.forEach((hand, player) => {
       el(`player-${player}`).classList.toggle("active", discarding && player === state.discard_player);

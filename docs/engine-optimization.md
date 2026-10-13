@@ -1,23 +1,30 @@
 # Engine optimization: owned seven/discard transitions
 
+Historical milestone record. The 2026-10-11 [expanded engine and performance review](expanded-engine.md)
+supersedes earlier feature boundaries, array sizes, schema dimensions and current test counts below.
+Historical measurements retain their original workload and date. Training remains deferred.
+
+
 Implemented 2026-10-10 in the main project. This increment prepares the existing
 rules for efficient rollout execution. The subsequent [Stage 4 increment](stage-four-engine.md)
-now runs complete minimal games; observations, parallel workers, policy inference,
-and training remain unfinished. Measurements below describe the earlier discard-only milestone.
+now runs complete minimal games. Subsequent [Stage 5 checks](stage-five-validation.md)
+and [relative observations](representation-encoding.md) are implemented; parallel
+rollouts, policy inference and training remain unfinished. Measurements below
+describe the earlier discard-only milestone.
 
 ## API and ownership
 
 | API | Accepted transition | Return / ownership |
 | --- | --- | --- |
 | `resolve_seven(state)` | An already-known seven at ROLL | Independent successor; source retained |
-| `apply_action(state, action)` | A validated DiscardAction at DISCARD | Independent successor; source retained |
+| `apply_action(state, action)` | Any validated Stage 4 action | Independent successor; source retained |
 | `resolve_seven_inplace(state)` | Same seven rule | Same state, updated in place |
-| `apply_action_inplace(state, action)` | Same manual discard rule | Same state, updated in place |
+| `apply_action_inplace(state, action)` | Same Stage 4 rules | Same state, updated in place |
 
 Both API families call shared validation and mutation helpers. In-place calls
-retain the state, every array, and the complete RNG object; they neither clone
-nor advance the RNG for these deterministic rules. Functional calls keep the
-existing complete-copy contract, including cached Gaussian continuation.
+retain the state, every array, and the complete RNG object without cloning them.
+Dice/theft advance the owned RNG; known sevens and discards consume no draws.
+Functional calls keep the complete-copy contract, including Gaussian continuation.
 
 An in-place caller must exclusively own valid state and its mutable arrays/RNG.
 Retained references observe updates. Take `state.copy()` before branching or
@@ -52,7 +59,7 @@ not the end-to-end measurements below.
 
 ## Example
 
-Until full setup/dice actions exist, create a conserved test fixture:
+For a focused known-seven example, create a conserved test fixture:
 
 ```python
 from catan.actions import DiscardAction
@@ -128,7 +135,8 @@ metadata timeout; all current JavaScript tests pass using the existing Node chec
 image with a read-only mount of the main source. No browser script/layout changed.
 
 The subsequent Stage 4 increment completes the minimal gameplay loop and measures
-headless baseline episodes, including capped stalemates. Next broaden Stage 5
-validation, then implement observation/action/reward interfaces, preallocated
-rollout buffers, parallel games, and batched policy inference. Network compilation/mixed precision remain
-later, workload-dependent work. No ML dependencies or host packages were added.
+headless baseline episodes, including capped stalemates. Stage 5 validation and
+the relative observation encoder are now implemented separately. Policy/value
+networks, action/reward interfaces, rollout storage, parallel games and batched
+policy inference remain later work. Network compilation/mixed precision depend
+on the eventual training workload. No ML dependencies or host packages were added.

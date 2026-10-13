@@ -113,6 +113,41 @@ class EndTurnAction:
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class BuyDevelopmentAction:
+    """Buy an unknown card using one sheep, wheat and ore."""
+
+
+@dataclass(frozen=True, slots=True)
+class KnightAction:
+    """Play an older knight and explicitly choose robber movement/stealing next."""
+
+
+@dataclass(frozen=True, slots=True)
+class RoadBuildingAction:
+    """Play an older card; choose free roads sequentially under normal placement rules."""
+
+
+@dataclass(frozen=True, slots=True)
+class MonopolyAction:
+    resource: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "resource", _bounded(self.resource, "resource", 5))
+
+
+@dataclass(frozen=True, slots=True)
+class YearOfPlentyAction:
+    resources: tuple[int, int, int, int, int]
+
+    def __post_init__(self) -> None:
+        # Reuse the established strict resource-count parser (no state/RNG work).
+        counts = DiscardAction(0, self.resources).resources
+        if sum(counts) > 2:
+            raise ValueError("Year of Plenty takes at most two resources")
+        object.__setattr__(self, "resources", counts)
+
+
 Action = (
     SettlementAction
     | RoadAction
@@ -123,4 +158,9 @@ Action = (
     | StealAction
     | BankTradeAction
     | EndTurnAction
+    | BuyDevelopmentAction
+    | KnightAction
+    | RoadBuildingAction
+    | MonopolyAction
+    | YearOfPlentyAction
 )

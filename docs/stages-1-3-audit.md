@@ -1,5 +1,10 @@
 # Stages 1-3 audit and optimization
 
+Historical milestone record. The 2026-10-11 [expanded engine and performance review](expanded-engine.md)
+supersedes earlier feature boundaries, array sizes, schema dimensions and current test counts below.
+Historical measurements retain their original workload and date. Training remains deferred.
+
+
 Date: 2026-10-09. Scope: everything implemented through the guide's first three
 stages, including the package/container workflow, immutable geometry, constrained
 board setup and ports, mutable state, local preview API/canvas, and benchmark tools.
