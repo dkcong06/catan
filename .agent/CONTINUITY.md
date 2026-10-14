@@ -2,6 +2,10 @@
 
 ## [PLANS]
 
+- 2026-10-14T00:04:46Z [TOOL] Bounded PPO stage complete in main; supersedes held-optimizer/pending-PPO boundaries. Next a small reproducible training experiment with fixed budget/held-out seeds/seat-rotated opponents, followed by measured CPU/GPU/opponent scheduling choices. Long training/self-play/GNN/fragments remain held; no further implementation this turn.
+
+- 2026-10-13T23:23:46Z [USER] Build next step, test/compare implementations, optimize/clean and explain detailed/plain versions; assess GPU usefulness first. [ASSUMPTION] Minimal PPO updater with bounded optimizer tests, fixed same-seat targets, stale-behavior checks, gradient/KL limits and resumable checkpoints. Long training/self-play/GNN remains held; main checkout, container tooling and prior changes preserved.
+
 - 2026-10-13T17:42:55Z [TOOL] Optional MLP policy/critic and same-seat target stage completed in main; supersedes model/target-not-implemented boundaries. Training/optimizer updates remain held. Next minimal PPO update with ratio/clipping/critic/advantage/checkpoint toy gates, then authorized real training; no trainer/self-play/GNN/GPU/fragment implementation.
 
 - 2026-10-13T17:02:18Z [USER] Implement the next step, compare methods for future ML, test thoroughly, clean unused code and explain detailed/plain versions. [ASSUMPTION] Build optional PyTorch MLP policy/critic, masked/autoregressive discards, collector callback and NumPy same-seat GAE/value targets with explicit discount/cutoff behavior. Preserve main engine/collector/schema/RNG behavior; training and optimizer updates remain held. Benchmark heads, widths, batching, thread counts, inference modes and return scans; no GNN/PPO/self-play/horizon fragments/PDF regeneration.
@@ -27,6 +31,8 @@
 
 ## [DECISIONS]
 
+- 2026-10-14T00:04:46Z [CODE] PPO1 optional learning.ppo: current stochastic version+numeric behavior preflight, fixed same-seat targets/cutoff bootstraps, global population-STD advantage normalization, detached joint-action/value targets, clipped actor/value losses, Adam eps1e-5/fused default (scalar/foreach selectable), global grad0.5, finite checks, sampled mini/global-per-epoch KL stop. Entropy0default; discard regularizer explicitly behavior-prefix conditional. Owned bounded minibatch gathers; model1 schemas/state_dict unchanged. Atomic requested checkpoints store schemas/config/weights/Adam/version/counters/local shuffle; raw metadata checked before casting. Runtime failures quarantine updater; no per-step rollback copies. Application owns thread settings;1collection/4isolated-update is measured option.
+
 - 2026-10-13T17:42:55Z [CODE] learning package isolates optional torch2.14.1+cpu; all catan/rl remain NumPy-only and earlier Python bytes unchanged. Model1 two-layer configurable128 MLP, fused254-policy/value projection, shared prefix-conditioned20-count discard head; scoped CPU RNG init, caller threads, per-seat Random sampling/forced-no-draw, normal-gradient reevaluation and owned minibatches. Deterministic point-mass logs are eval-only. Target1 explicit same-seat GAE gamma1/lambda.95, decision or engine-gap discount; real cutoff bootstraps required, true terminal futures0, no updates.
 
 - 2026-10-13T09:42:34Z [CODE] Collector1 adds NumPy-only finite complete episodes with configurable synchronous active-game batching, independent read-only contiguous columns, same-episode/same-seat links/action gaps and all-seat final outcomes. Cutoffs retain permitted per-seat final views; no fake terminal/loss/record/value. Sparse complete discards carry hand/count/five conditional logs; random adapter preserves physical-card hypergeometric probabilities and all RNG draws. Outputs checked before any batch step; NPZ numeric/JSON metadata only, optional outside collection. Existing obs2/action1/env1/engine unchanged.
@@ -48,6 +54,8 @@
 
 ## [PROGRESS]
 
+- 2026-10-13T23:47:43Z [CODE] Bounded PPO updater/checkpoints implemented; existing schemas/core sources preserved except learning.model recorded-discard reevaluation optimization. Optional model/target/PPO135 tests pass, then added checkpoint/optimizer/CLI gates. Final benchmark and broader replay/resume audit pending. Docker missing cached snapshot resolved by clean container rebuild; no host installation. Check raw Adam tensor metadata before load_state_dict casts it.
+
 - 2026-10-13T17:46:10Z [TOOL] Cleanup completed: resolved main/tmp/learning-review contained only12task files and was removed; raw reports/model example records+targets remain. Final image rebuilds reused installed dependency caches; whitespace passes and dated PDF SHA256 remains9a08738c531abfef71bcdf92f4c92c37e3622c88258aa32277046b0b4dec6e1a. Report panel queued via open_in_codex.
 
 - 2026-10-13T09:44:38Z [TOOL] Example compressed NPZ/JSON archives generated and read back with allow_pickle=False: three seats843rows/four seats1533rows, four real wins each, matching metadata/outcomes; retained in output/collector. Final report tab queued via open_in_codex; no claim of visible opening.
@@ -66,6 +74,10 @@
 - 2026-10-10T10:00:22Z [TOOL] Preview moved to catan-main-viewer with a read-only main-project bind mount on localhost8124. Board at /, manual demo at /discards; sample hands and at most 32 in-memory revision-checked sessions are not full-game UI. Older screenshots remain in main/output. HTML is read per request, so current text edits appear without server restart.
 
 ## [DISCOVERIES]
+
+- 2026-10-14T00:04:46Z [TOOL] Same-weight CPU update1/2/4threads medians2.994/2.290/2.152s(5paired),four28.1%less; parameterdiff4threads0/two2.98e-8. Final default1thread7190rows/4epochs/116steps median3.056s(3),collection2.239s(single); minibatch1024 faster but32steps vs228at128,not proven learning-quality gain. Profile linear0.864/backward0.806/gather0.173/preflight0.249/global diagnostics0.885s(overlap,profile overhead); GPU unverified. Host reports AMD integrated,no NVIDIA;CPU-only image. Docker repeated cached-snapshot export fixed by --provenance=false; no cache/host deletion/install.
+
+- 2026-10-13T23:47:43Z [TOOL] PPO method review in main: recorded-discard fused reevaluation4.010->3.345s median(7paired,16.6%less), final parameters maxdifference5.96e-8; fused CPU Adam3.472->3.270s(5paired,5.8%less),maxdifference5.31e-8. Keep both. Full tensor cache3.373->3.275s(9paired,2.9%)duplicates45,236,188bytes/7190rows: reject default; reusable NumPy gathers slower. Scalar/foreach identical parameters but small mixed timing differences; retain explicit modes and configurable minibatches. Raw reports output/ppo.
 
 - 2026-10-13T17:42:55Z [TOOL] Same6358-action neural pipeline,7warmed alternating batches:1thread serial4.00714s/1587actions/s vs batched2.54345/2500 (1.575x),4threads batched2.64461/2404; identical final/all-RNG fingerprints.4threads faster raw128-row inference but ~4% slower full collection; explicit CLI default1. Width64/128/256 costs measured, quality untested; fused heads2.6% micro difference retained for simplicity; no-grad/inference and manual/Categorical near-tied. Inductor unavailable without C++ compiler. Exact target hybrid(list small/few, vector>=4096rows/64closures)1.5-4.9x faster across tested layouts; list temporary memory2.75->6.64MB at32768rows. Raw reports retained; no training/GPU claims.
 
@@ -89,6 +101,8 @@
 - 2026-10-09T05:46:33Z [TOOL] Historical foundation optimizations preserve lexicographic red-cache order and seeded stream, shape/dtype-aware integer byte equality (NumPy fallback for debug noninteger arrays), direct public port endpoint checks, and flat preview schema. UI normalizes 1e3 to seed 1000 and ignores stale responses/errors. validate() checks storage/physical bookkeeping and distance, not all historical road connectivity.
 
 ## [OUTCOMES]
+
+- 2026-10-14T00:04:46Z [TOOL] PPO completed: learning911Python(69new),core823+2optional-skips,21JS,three successful image builds,Ruff64-file lint/format,compile/two pip checks/guideF/10doc examples/link/whitespace gates pass. Audit144episodes(96wins/48cuts;72each3/4seat),93272actions/186832invariants/93776exactobservations/1591discards,72realupdates/818steps,all72resumed bit-exact,fingerprint64022a8c882fc5eeff91b9640311450581687144fdd0c2c122f6e15e2237ba8e. Totals and59/60prior source hashes verified;only priorPython change learning.model fused reevaluation,4newPythonfiles. Current docs/ppo-updates.md,output/ppo measurements/profile/examplecheckpoint; PDFs/engine/collector/targets/deps preserved. Verified main/tmp/ppo-review and removed all13task-created comparison files; no commit/long training/strength/GPU claim.
 
 - 2026-10-13T17:42:55Z [TOOL] Learning842Python(67new),core823+1intentionaloptionalskip,21JS,three Docker builds,Ruff60-file lint/format,compile/two pip checks/two doc-generatorF checks/15doc examples pass. Neural audit124episodes(100wins/24deliberatecuts),92930actions/186108invariants/93364observations/1805discards,all8decision phases+terminal,probability/value/target/gradient checks and byte-unchanged weights; fingerprinta1a245b953ca4891978080cd812cae791105cd5266811898bfc43ced0bae34e7. Totals and51earlier Python hashes verified. Example600-row numeric records/targets read back pickle-free; docs/policy-value-targets.md current contract. Task prototypes removed after verification; raw reports/useful tools retained. PDFs/user work/core dependencies unchanged, no commit/optimizer/training.
 

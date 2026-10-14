@@ -1,6 +1,6 @@
 # Agent environment, rewards and evaluation
 
-Later 2026-10-13 update: [the optional MLP policy/critic and same-seat learning targets](policy-value-targets.md) are implemented. Earlier model/target next-work statements below describe their dated milestone. Training/optimizer updates remain held; existing PDFs are unchanged.
+Current 2026-10-13 update: [the optional model/targets](policy-value-targets.md) and [bounded PPO updates/checkpoints](ppo-updates.md) are implemented. Earlier next-work statements below describe dated milestones. Long training/self-play and learned-strength comparisons remain future work; existing PDFs are unchanged.
 
 Implemented 2026-10-12 in the main project. Training remains on hold.
 2026-10-13 update: the [per-seat collector](rollout-collector.md) is implemented.

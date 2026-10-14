@@ -1,5 +1,7 @@
 # MLP policy, critic and learning targets
 
+Current 2026-10-13 update: [the optional model/targets](policy-value-targets.md) and [bounded PPO updates/checkpoints](ppo-updates.md) are implemented. Earlier next-work statements below describe dated milestones. Long training/self-play and learned-strength comparisons remain future work; existing PDFs are unchanged.
+
 Implemented 2026-10-13 in C:/Users/david/Documents/Coding/Catan. This increment
 adds an untrained actor/critic, collector adapter, differentiable action
 reevaluation and same-seat advantage/value targets. No optimizer updates, PPO,

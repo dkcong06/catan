@@ -154,26 +154,36 @@ class ActorCritic(nn.Module):
             entropies = entropies.index_copy(0, regular, entropy)
         if len(discard_rows):
             hidden = output.hidden[discard_rows]
-            joint = hidden.new_zeros(len(discard_rows))
-            entropy_sum = joint.clone()
-            required = discard_counts.sum(dim=1)
-            for resource in range(5):
-                prefix = F.pad(discard_counts[:, :resource], (0, 5 - resource)).float()
-                remaining = required - discard_counts[:, :resource].sum(dim=1)
-                minimum = (
-                    remaining - discard_hands[:, resource + 1 :].sum(dim=1)
-                ).clamp(min=0)
-                maximum = torch.minimum(remaining, discard_hands[:, resource])
-                feasible = (self.count_choices >= minimum[:, None]) & (
-                    self.count_choices <= maximum[:, None]
-                )
-                logs, entropy = _distribution(
-                    self.discard_logits(hidden, prefix, resource), feasible
-                )
-                joint = joint + logs.gather(
-                    1, discard_counts[:, resource, None]
-                ).squeeze(1)
-                entropy_sum = entropy_sum + entropy
+            d = len(discard_rows)
+            # Recorded prefixes are known: evaluate all five conditional heads in
+            # one call. Sampling remains sequential in NeuralPolicy.
+            resources = self.count_choices[:5]
+            prefix = (
+                discard_counts[:, None, :]
+                * (resources[:, None] > resources[None, :])[None]
+            ).float()
+            remaining = discard_counts.sum(dim=1)[:, None] - prefix.sum(dim=2)
+            following = discard_hands.sum(dim=1)[:, None] - discard_hands.cumsum(dim=1)
+            minimum = (remaining - following).clamp_min(0)
+            maximum = torch.minimum(remaining, discard_hands)
+            feasible = (self.count_choices >= minimum[:, :, None]) & (
+                self.count_choices <= maximum[:, :, None]
+            )
+            features = torch.cat(
+                (
+                    hidden[:, None, :].expand(-1, 5, -1),
+                    prefix / 19.0,
+                    self.resource_codes[None].expand(d, -1, -1),
+                ),
+                dim=2,
+            )
+            logs, entropy = _distribution(
+                self.discard(features).reshape(d * 5, 20), feasible.reshape(d * 5, 20)
+            )
+            joint = (
+                logs.gather(1, discard_counts.reshape(-1, 1)).reshape(d, 5).sum(dim=1)
+            )
+            entropy_sum = entropy.reshape(d, 5).sum(dim=1)
             log_probs = log_probs.index_copy(0, discard_rows, joint)
             entropies = entropies.index_copy(0, discard_rows, entropy_sum)
         return ActionEvaluation(log_probs, entropies, output.values)

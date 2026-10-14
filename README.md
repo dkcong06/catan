@@ -13,15 +13,43 @@ Stage 5 adds [continuous invariant and random-game validation](docs/stage-five-v
 with deterministic replay reports, bounded parallel workers and explicit win/cap counts.
 Guide Sections 6-7 now provide [relative flat observations](docs/representation-encoding.md):
 fixed float32 features for three/four seats, hidden opponent hands, and prepared
-immutable board lookups with optional output buffers. The browser remains a board/discard demo; neural models and training are later work.
+immutable board lookups with optional output buffers. The browser remains a board/discard demo. The optional model, collector and PPO updater are implemented; long training experiments remain future work.
 The [discard rule contract](docs/manual-discards.md) documents manual choices. The
 [Phase 3 plan and verification](docs/phase-three-plan.md) document the state contract.
 
 The board generator and board-preview routes use only Python's standard library.
-Game state and observation encoding use pinned NumPy 2.4.6; pytest/Ruff are development tools. PyTorch is deferred
-until learning code requires it. Dependencies are installed in Docker.
+Game state and observation encoding use pinned NumPy 2.4.6; pytest/Ruff are development tools. PyTorch is available separately in the optional learning image. Dependencies are installed in Docker.
 
 
+## PPO updates and checkpoints (2026-10-13)
+
+The [PPO contract](docs/ppo-updates.md) describes `learning.ppo.PPOConfig` and
+`PPOUpdater`: fresh stochastic rollout checks, fixed same-seat GAE, globally
+normalized advantages, clipped joint-action/critic losses, Adam, finite/clipped
+gradients, policy-drift early stopping and atomic resumable local checkpoints.
+Recorded discard reevaluation combines all five known prefixes into one call;
+actual discard sampling remains sequential. The engine and every `rl` module
+remain NumPy-only. Only bounded update-mechanics tests ran, not a long learning
+experiment or a playing-strength comparison.
+
+```powershell
+docker build --target learning-checks -t catan-learning-checks .
+docker run --rm catan-learning-checks python -m scripts.benchmark_ppo --threads 1
+docker run --rm catan-learning-checks python -m scripts.validate_ppo --seeds 12 --workers 4
+```
+
+The inspected laptop reports AMD Radeon integrated graphics; the verified image
+is CPU-only. Benchmark a compatible dedicated GPU when repeated model arithmetic
+becomes a large share of total runtime. GPU execution does not accelerate the
+Python/NumPy simulator, and CUDA correctness/performance remains unverified.
+
+This increment passed 911 Python tests, 823 core-only tests with two intentional
+optional-module skips, and 21 JavaScript tests. The144-game audit checked 93272 actions
+and 72 updates, each repeated exactly after checkpoint restoration. Fused recorded-
+discard reevaluation reduced paired update time 16.6%; fused CPU Adam reduced it5.8%.
+Four update threads were28.1% faster than one in a separate same-weight comparison.
+A full rollout tensor cache saved only 2.9% while duplicating45MB and was removed.
+The contract records the actual workloads, limits and next training boundary.
 ## Agent environment and evaluation (2026-10-12)
 
 The [agent interface contract](docs/agent-environment-evaluation.md) covers
@@ -107,7 +135,7 @@ The [model and target contract](docs/policy-value-targets.md) covers the optiona
 moves and estimates future reward; a shared prefix-conditioned head selects a
 complete discard. The collector records real probabilities/value predictions.
 Same-seat generalized advantage estimates preserve terminal/cutoff distinctions
-and require explicit cutoff predictions. No optimizer or training updates run.
+and require explicit cutoff predictions. The next [PPO update stage](docs/ppo-updates.md) now changes the model in bounded mechanics checks; this dated model-stage report describes its earlier no-update verification.
 
 ```powershell
 docker build --target learning-checks -t catan-learning-checks .
@@ -136,9 +164,9 @@ targets = compute_targets(batch, values=np.zeros(len(batch), dtype=np.float32),
 assert targets.advantages.shape == (20,)
 ```
 
-The learning image passed842 Python tests; the lightweight image passed823 and
+The learning image passed 842 Python tests; the lightweight image passed 823 and
 intentionally skipped the optional model test module. The124-episode neural audit
-checked92930actions with independent engine replay, probabilities/values, cutoff
+checked 92930 actions with independent engine replay, probabilities/values, cutoff
 bootstraps and finite gradients while every model weight remained unchanged.
 See the contract for exact formulas, ownership, benchmarks, CLI archive outputs
 and the next PPO update boundary.
@@ -317,7 +345,7 @@ Exactly seven cards require no discard. Choices run clockwise from the roller;
 the turn owner. Only after all choices does the engine enter `ROBBER_MOVE`.
 
 Open **Try manual discards after a seven** in the board viewer, or visit
-`http://127.0.0.1:8000/discards`. Click **Resolve a 7**, select resource counts,
+`http://127.0.0.1: 8000/discards`. Click **Resolve a 7**, select resource counts,
 then **Confirm discard** for each pending player. The page uses sample hands and
 the real engine transitions; full engine gameplay is described below. This page is
 a discard-only demo. This feature needs the Docker image's NumPy dependency. See the
@@ -419,7 +447,7 @@ example, measured results, and remaining training work.
 
 ## Board viewer
 
-Run in Docker, then open `http://127.0.0.1:8000`:
+Run in Docker, then open `http://127.0.0.1: 8000`:
 
 ```powershell
 docker run --rm -p 127.0.0.1:8000:8000 catan-checks python -m scripts.board_viewer --host 0.0.0.0 --no-browser
@@ -463,7 +491,7 @@ At import, cache every legal set of four mutually nonadjacent tiles, grouped by
 desert position. Prune illegal prefixes during cache construction while preserving
 lexicographic order, so existing seeded layouts and RNG continuation are unchanged.
 Each board samples one set uniformly for its desert, shuffles
-the two 6s and two 8s onto it, then shuffles the remaining tokens and ports.
+the two 6 s and two 8 s onto it, then shuffles the remaining tokens and ports.
 This has bounded per-board work and avoids rejection loops or biased repair
 swaps. The shared tuple cache occupies about 103 KB on the measured runtime.
 
