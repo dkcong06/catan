@@ -35,6 +35,56 @@ def arrays(batch):
     }
 
 
+@pytest.mark.parametrize("players", (3, 4))
+@pytest.mark.parametrize("name", ("greedy", "random"))
+def test_recorded_seats_preserve_full_trajectories_links_and_private_boundaries(
+    players, name
+):
+    policy = ReferencePolicy(name)
+    full = collect_rollouts(policy, (27, 28), n_players=players, max_actions=250)
+    selected = collect_rollouts(
+        policy, (27, 28), n_players=players, max_actions=250, record_players=(1,)
+    )
+    assert full.episodes == selected.episodes
+    chosen = np.flatnonzero(full.players == 1)
+    remap = {int(row): local for local, row in enumerate(chosen)}
+    for field in (
+        "observations",
+        "masks",
+        "actions",
+        "log_probs",
+        "values",
+        "rewards",
+        "elapsed_actions",
+        "episode_indices",
+        "phases",
+        "steps",
+        "terminated",
+        "truncated",
+    ):
+        np.testing.assert_array_equal(
+            getattr(full, field)[chosen], getattr(selected, field)
+        )
+    np.testing.assert_array_equal(
+        selected.next_rows, [remap.get(int(full.next_rows[row]), -1) for row in chosen]
+    )
+    assert not selected.final_observations[:, [0, 2, 3]].any()
+    np.testing.assert_array_equal(
+        selected.final_observations[:, 1], full.final_observations[:, 1]
+    )
+    assert (selected.last_rows[:, [0, 2, 3]] == -1).all()
+    assert selected.payload_bytes < full.payload_bytes
+
+
+@pytest.mark.parametrize("seats", ((), (0, 0), (-1,), (4,), (True,)))
+def test_invalid_recorded_seats_reject_before_any_policy_call(seats):
+    def never(*args):
+        raise AssertionError("policy called for invalid recording configuration")
+
+    with pytest.raises(ValueError):
+        collect_rollouts(never, record_players=seats)
+
+
 def assert_same_records(left, right):
     assert left.episodes == right.episodes
     for name in arrays(left):

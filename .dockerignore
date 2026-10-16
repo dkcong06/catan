@@ -9,5 +9,7 @@ output
 assets
 *.pdf
 generate_guide.py
+sites
+.cursor
 
 docs/build_project_report.py

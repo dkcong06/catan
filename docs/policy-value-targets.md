@@ -133,13 +133,23 @@ minibatch positions, including when source rows are repeated. Empty batches work
 Old outputs are detached data. This does not normalize advantages, move entire
 datasets to GPU or introduce a trainer/minibatch scheduler.
 
+action_inputs now shares the six observation/choice tensors between PPO and
+supervised imitation; action_batch additionally gathers actual old probabilities
+and values for PPO. It does not fabricate such predictions for teacher examples.
+
 ActorCritic.evaluate_actions(observations,masks,actions,discard_rows,discard_hands,
-discard_counts) validates physical/legal choices, returns differentiable joint
+discard_counts,compute_entropy=True) validates physical/legal choices, returns differentiable joint
 log probabilities, entropy measures and critic estimates. Training discards use
 recorded prefixes (teacher forcing), so all five head contributions have gradients.
 Flat entropy is exact. Discard entropy is the sum of conditional entropies along
 the supplied prefix trajectory; it is not an enumeration of full joint entropy.
 It is an estimator/regularizer whose future off-policy use must be specified.
+
+The 2026-10-14 imitation path explicitly requests compute_entropy=False to skip
+unused exponential/entropy work. Returned entropies are zero placeholders in that
+mode. Logs, values, gradients, parameter shapes and checkpoint schemas are
+unchanged; ordinary PPO/inference keeps the default behavior. See the
+[measured curriculum contract](imitation-curriculum.md).
 
 Tests verify full probability normalization for an enumerated small discard hand,
 maximum 95-card/47-discard choices, finite gradients, illegal-gradient zeros, hidden

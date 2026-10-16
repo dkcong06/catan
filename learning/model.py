@@ -10,6 +10,7 @@ from torch.nn import functional as F
 from catan.state import _integer
 from rl.actions import ACTION_DIM, ACTION_SCHEMA_VERSION
 from rl.encoding import OBS_DIM, SCHEMA_VERSION
+from rl.economics import ECONOMIC_OBS_DIM, ECONOMIC_SCHEMA_VERSION
 
 MODEL_SCHEMA_VERSION = 1
 
@@ -26,14 +27,17 @@ class ActionEvaluation(NamedTuple):
     values: torch.Tensor
 
 
-def _distribution(logits, masks):
+def _distribution(logits, masks, *, compute_entropy=True):
     if masks.shape != logits.shape or masks.dtype != torch.bool:
         raise ValueError("masks must be Boolean and match logits")
     if not masks.any(dim=1).all() or not torch.isfinite(logits).all():
         raise ValueError("every distribution needs a legal action and finite logits")
     logs = F.log_softmax(logits.masked_fill(~masks, -torch.inf), dim=1)
-    probabilities = logs.exp()
-    entropy = -(probabilities * logs.masked_fill(~masks, 0)).sum(dim=1)
+    if compute_entropy:
+        probabilities = logs.exp()
+        entropy = -(probabilities * logs.masked_fill(~masks, 0)).sum(dim=1)
+    else:
+        entropy = logits.new_zeros(len(logits))
     return logs, entropy
 
 
@@ -44,6 +48,8 @@ class ActorCritic(nn.Module):
     settings, draws policy/game randomness, or updates parameters. Values are
     unconstrained reward estimates, not calibrated winning probabilities.
     """
+
+    observation_dim = OBS_DIM
 
     def __init__(self, hidden_size=128, *, seed=0):
         super().__init__()
@@ -96,15 +102,30 @@ class ActorCritic(nn.Module):
         return self.discard(torch.cat((hidden, prefix / 19.0, code), dim=1))
 
     def evaluate_actions(
-        self, observations, masks, actions, discard_rows, discard_hands, discard_counts
+        self,
+        observations,
+        masks,
+        actions,
+        discard_rows,
+        discard_hands,
+        discard_counts,
+        *,
+        compute_entropy=True,
+        critic_updates_trunk=True,
     ):
         """Differentiable log probabilities for stored choices and prefixes.
 
         Flat entropy is exact. Discard entropy sums conditional entropies along
         the supplied prefix trajectory; it is not enumerated full joint entropy.
         Indices are local to this minibatch and may include repeated source rows.
+        compute_entropy=False skips unused exponentials for actor imitation;
+        returned entropies are zero placeholders, while logs/values are unchanged.
         """
         n = len(observations)
+        if type(compute_entropy) is not bool:
+            raise ValueError("compute_entropy must be Boolean")
+        if type(critic_updates_trunk) is not bool:
+            raise ValueError("critic_updates_trunk must be Boolean")
         if (
             masks.shape != (n, ACTION_DIM)
             or masks.dtype != torch.bool
@@ -148,7 +169,9 @@ class ActorCritic(nn.Module):
         log_probs = output.values.new_zeros(n)
         entropies = output.values.new_zeros(n)
         if len(regular):
-            logs, entropy = _distribution(output.logits[regular], masks[regular])
+            logs, entropy = _distribution(
+                output.logits[regular], masks[regular], compute_entropy=compute_entropy
+            )
             selected = logs.gather(1, actions[regular, None]).squeeze(1)
             log_probs = log_probs.index_copy(0, regular, selected)
             entropies = entropies.index_copy(0, regular, entropy)
@@ -178,7 +201,9 @@ class ActorCritic(nn.Module):
                 dim=2,
             )
             logs, entropy = _distribution(
-                self.discard(features).reshape(d * 5, 20), feasible.reshape(d * 5, 20)
+                self.discard(features).reshape(d * 5, 20),
+                feasible.reshape(d * 5, 20),
+                compute_entropy=compute_entropy,
             )
             joint = (
                 logs.gather(1, discard_counts.reshape(-1, 1)).reshape(d, 5).sum(dim=1)
@@ -186,4 +211,76 @@ class ActorCritic(nn.Module):
             entropy_sum = entropy.reshape(d, 5).sum(dim=1)
             log_probs = log_probs.index_copy(0, discard_rows, joint)
             entropies = entropies.index_copy(0, discard_rows, entropy_sum)
-        return ActionEvaluation(log_probs, entropies, output.values)
+        values = output.values
+        if not critic_updates_trunk:
+            head = F.linear(
+                output.hidden.detach(), self.output.weight[-1:], self.output.bias[-1:]
+            ).flatten()
+            # Preserve fused forward values exactly; only the backward path changes.
+            values = values.detach() + (head - head.detach())
+        return ActionEvaluation(log_probs, entropies, values)
+
+
+class _FeatureActorCritic(ActorCritic):
+    """Add a zero-initialized feature branch without changing legacy parameters."""
+
+    def __init__(self, hidden_size=128, *, seed=0):
+        super().__init__(hidden_size, seed=seed)
+        self.schema = (
+            self.model_schema,
+            self.observation_schema,
+            ACTION_SCHEMA_VERSION,
+        )
+        with torch.random.fork_rng(devices=[]):
+            branch = nn.Linear(
+                self.observation_dim - OBS_DIM,
+                hidden_size,
+                bias=False,
+                dtype=torch.float32,
+                device="cpu",
+            )
+            nn.init.zeros_(branch.weight)
+            self.add_module(self.branch_name, branch)
+
+    @classmethod
+    def from_base(cls, model):
+        if type(model) is not ActorCritic:
+            raise ValueError("migration requires the original model1")
+        result = cls(model.hidden_size, seed=model.seed)
+        missing, unexpected = result.load_state_dict(model.state_dict(), strict=False)
+        if missing != [f"{cls.branch_name}.weight"] or unexpected:
+            raise ValueError("unexpected original-model fields")
+        result.eval()
+        return result
+
+    def forward(self, observations):
+        if (
+            observations.ndim != 2
+            or observations.shape[1] != self.observation_dim
+            or observations.dtype != torch.float32
+        ):
+            raise ValueError(
+                f"experimental observations must be float32 (N,{self.observation_dim})"
+            )
+        base = observations[:, :OBS_DIM].contiguous()
+        extra = observations[:, OBS_DIM:].contiguous()
+        hidden = self.trunk[0](base) + getattr(self, self.branch_name)(extra)
+        hidden = self.trunk[3](self.trunk[2](self.trunk[1](hidden)))
+        output = self.output(hidden)
+        return NetworkOutput(output[:, :ACTION_DIM], output[:, ACTION_DIM], hidden)
+
+
+class KnowledgeActorCritic(_FeatureActorCritic):
+    """Legacy model2; preserve knowledge.weight and its observation3 contract."""
+
+    observation_dim = OBS_DIM + 30
+    model_schema, observation_schema, branch_name = 2, 3, "knowledge"
+
+
+class EconomicActorCritic(_FeatureActorCritic):
+    """Model3 adds public economic features; zero migration preserves behavior."""
+
+    observation_dim = ECONOMIC_OBS_DIM
+    model_schema = 3
+    observation_schema = ECONOMIC_SCHEMA_VERSION
+    branch_name = "economics"

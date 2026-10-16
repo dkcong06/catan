@@ -1,5 +1,16 @@
 # Per-seat rollout collector
 
+2026-10-15 optional profile: EconomicEnvFactory uses observation4 (2000 floats)
+and collector3 archives. The legacy1505-wide default remains unchanged.
+See [economic features and fixed decision benchmarks](economic-features.md)
+for schema compatibility, public-information semantics and measured costs.
+
+2026-10-14 update: optional record_players retains only requested seats while all
+players still act normally. Excluded seats have last_rows=-1 and zero final views;
+links/rewards/bootstrap semantics remain unchanged for recorded seats. Default
+full-seat collection preserves existing behavior. See [imitation and curriculum](imitation-curriculum.md)
+for the ownership, privacy, performance and mixed-policy PPO checks.
+
 Current 2026-10-13 update: [the optional model/targets](policy-value-targets.md) and [bounded PPO updates/checkpoints](ppo-updates.md) are implemented. Earlier next-work statements below describe dated milestones. Long training/self-play and learned-strength comparisons remain future work; existing PDFs are unchanged.
 
 Implemented 2026-10-13 in C:/Users/david/Documents/Coding/Catan. Training remains
@@ -56,11 +67,16 @@ assert (batch.elapsed_actions > 0).all()
 ```
 
 collect_rollouts(policy, seeds=(0,), *, n_players=4, policy_seed=0,
-max_actions=5000, batch_size=8, policy_tag=None, validate=False) validates integer
+max_actions=5000, batch_size=8, policy_tag=None, validate=False, record_players=None) validates integer
 bounds, distinct nonempty seeds, three/four players, callable policy, Boolean
 validation and the int32 row bound before playing. ReferencePolicy accepts one
 known policy name for all seats or one per seat. Repeated collection calls own
 independent outputs. No user/environment instance is reused or implicitly reset.
+
+record_players is None or a nonempty sequence of distinct valid absolute seats.
+With filtering, len(batch) counts retained decisions rather than all engine actions;
+sum(episode.actions for episode in batch.episodes) still counts physical actions.
+Unrecorded players' private final observations are not encoded or retained.
 
 The callback contract is policy(tuple_of_decisions, tuple_of_policy_rngs), returning
 exactly one PolicySample per request in that order. Inputs have read-only array

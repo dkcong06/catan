@@ -7,10 +7,9 @@ from typing import NamedTuple
 import numpy as np
 import torch
 
-from learning.model import ActorCritic, MODEL_SCHEMA_VERSION
+from learning.model import ActorCritic
 from rl.actions import ACTION_DIM
 from rl.collector import PolicySample
-from rl.encoding import OBS_DIM
 
 
 def _choose(logits, mask, rng, deterministic):
@@ -55,7 +54,7 @@ class NeuralPolicy:
         self.model = model
         self.deterministic = deterministic
         self.tag = (
-            f"mlp{MODEL_SCHEMA_VERSION}:{policy_version}:h{model.hidden_size}:seed{model.seed}:"
+            f"mlp{model.schema[0]}:{policy_version}:h{model.hidden_size}:seed{model.seed}:"
             + ("deterministic" if deterministic else "stochastic")
         )
 
@@ -118,7 +117,11 @@ class NeuralPolicy:
 
     def values(self, observations):
         array = np.asarray(observations)
-        if array.ndim != 2 or array.shape[1] != OBS_DIM or array.dtype != np.float32:
+        if (
+            array.ndim != 2
+            or array.shape[1] != self.model.observation_dim
+            or array.dtype != np.float32
+        ):
             raise ValueError("observations must be float32 (N, OBS_DIM)")
         # Own writable storage before making a zero-copy CPU tensor.
         owned = np.array(array, copy=True, order="C")
@@ -158,15 +161,17 @@ class ActionBatch(NamedTuple):
     old_log_probs: torch.Tensor
     old_values: torch.Tensor
 
-    def evaluate(self, model):
-        return model.evaluate_actions(*self[:6])
+    def evaluate(self, model, *, critic_updates_trunk=True):
+        return model.evaluate_actions(
+            *self[:6], critic_updates_trunk=critic_updates_trunk
+        )
 
 
-def action_batch(batch, rows, *, device="cpu"):
-    """Gather only requested rows; owned writable CPU storage, no pickle/state.
+def action_inputs(batch, rows, *, device="cpu"):
+    """Gather only observations and choices, shared by imitation and PPO.
 
     Repeated source indices are permitted. Sparse rows are remapped to local
-    minibatch positions. Old behavior logs/values are detached training data.
+    minibatch positions. No behavior probabilities are invented for teachers.
     """
     rows = np.asarray(rows)
     if rows.ndim == 1 and rows.size == 0:
@@ -193,7 +198,16 @@ def action_batch(batch, rows, *, device="cpu"):
         local.astype(np.int64),
         batch.discards.hands[positions].astype(np.int64),
         batch.discards.counts[positions].astype(np.int64),
-        batch.log_probs[rows],
-        batch.values[rows],
     )
-    return ActionBatch(*(torch.from_numpy(array).to(device) for array in arrays))
+    return tuple(torch.from_numpy(array).to(device) for array in arrays)
+
+
+def action_batch(batch, rows, *, device="cpu"):
+    """Owned action inputs plus detached actual behavior logs and values."""
+    inputs = action_inputs(batch, rows, device=device)
+    rows = np.asarray(rows, dtype=np.int64)  # Already checked by action_inputs.
+    return ActionBatch(
+        *inputs,
+        torch.from_numpy(batch.log_probs[rows]).to(device),
+        torch.from_numpy(batch.values[rows]).to(device),
+    )

@@ -20,6 +20,7 @@ from catan.state import _integer, _player_count
 from catan.validation import _fingerprint, assert_invariants
 from rl.actions import ACTION_DIM, ACTION_SCHEMA_VERSION, _discard_count_mask
 from rl.encoding import OBS_DIM, SCHEMA_VERSION
+from rl.economics import ECONOMIC_OBS_DIM, ECONOMIC_SCHEMA_VERSION
 from rl.env import CatanEnv, ENV_SCHEMA_VERSION, REWARD_SCHEME
 from rl.policies import POLICIES, POLICY_VERSIONS
 
@@ -155,6 +156,8 @@ class RolloutBatch:
     final_observations: np.ndarray
     last_rows: np.ndarray
     policy_tag: str
+    observation_schema: int = SCHEMA_VERSION
+    reward_scheme: str = REWARD_SCHEME
 
     def __len__(self):
         return len(self.actions)
@@ -167,7 +170,7 @@ class RolloutBatch:
         """
         rows = np.asarray(rows)
         if rows.ndim == 1 and rows.size == 0:
-            return np.empty((0, OBS_DIM), dtype=np.float32)
+            return np.empty((0, self.observations.shape[1]), dtype=np.float32)
         if (
             rows.ndim != 1
             or rows.dtype.kind not in "iu"
@@ -176,7 +179,7 @@ class RolloutBatch:
         ):
             raise ValueError("rows must be a one-dimensional array of valid integers")
         links = self.next_rows[rows]
-        out = np.empty((len(rows), OBS_DIM), dtype=np.float32)
+        out = np.empty((len(rows), self.observations.shape[1]), dtype=np.float32)
         internal = links >= 0
         out[internal] = self.observations[links[internal]]
         closing = rows[~internal]
@@ -222,20 +225,24 @@ _ROW_SPEC = (
 class _Rows:
     """Private geometric storage; views never escape before finalization."""
 
-    def __init__(self, limit):
+    def __init__(self, limit, observation_dim=OBS_DIM):
         self.limit = limit
+        self.spec = tuple(
+            (name, dtype, (observation_dim,) if name == "observations" else shape)
+            for name, dtype, shape in _ROW_SPEC
+        )
         self.capacity = min(256, limit)
         self.size = 0
         self.arrays = {
             name: np.empty((self.capacity,) + shape, dtype=dtype)
-            for name, dtype, shape in _ROW_SPEC
+            for name, dtype, shape in self.spec
         }
         self.discards = []
 
     def append(self, request, sample, episode, step):
         if self.size == self.capacity:
             self.capacity = min(self.limit, self.capacity * 2)
-            for name, _, shape in _ROW_SPEC:
+            for name, _, shape in self.spec:
                 self.arrays[name].resize((self.capacity,) + shape, refcheck=False)
         row = self.size
         self.size += 1
@@ -261,7 +268,7 @@ class _Rows:
         return row
 
     def finish(self):
-        for name, _, shape in _ROW_SPEC:
+        for name, _, shape in self.spec:
             self.arrays[name].resize((self.size,) + shape, refcheck=False)
             self.arrays[name].flags.writeable = False
         records = self.discards
@@ -332,6 +339,8 @@ def collect_rollouts(
     batch_size=8,
     policy_tag=None,
     validate=False,
+    record_players=None,
+    env_factory=None,
 ):
     """Collect finite complete episodes with at most batch_size live games.
 
@@ -340,6 +349,8 @@ def collect_rollouts(
     The caller bounds data memory by seed count and the per-game accepted-action
     cap; at most len(seeds)*max_actions rows are retained. Repeated calls own
     disjoint output storage. This is synchronous batching, not process parallelism.
+    record_players optionally retains only those seats' rows/final views; every
+    seat still acts with its own unchanged RNG and the game continues normally.
     """
     if not callable(policy):
         raise ValueError("policy must be callable")
@@ -363,15 +374,44 @@ def collect_rollouts(
         raise ValueError("policy_tag must be a string")
     if isinstance(policy, ReferencePolicy) and len(policy.names) not in (1, players):
         raise ValueError("reference seat policies must match n_players")
-    storage = _Rows(len(seeds) * max_actions)
+    recorded = (
+        tuple(range(players))
+        if record_players is None
+        else tuple(_integer(seat, "record_player") for seat in record_players)
+    )
+    if (
+        not recorded
+        or len(set(recorded)) != len(recorded)
+        or any(not 0 <= seat < players for seat in recorded)
+    ):
+        raise ValueError("record_players must contain distinct seats in this game")
+    keep = tuple(seat in recorded for seat in range(players))
+    factory = CatanEnv if env_factory is None else env_factory
+    if not callable(factory):
+        raise ValueError("env_factory must be callable")
+    observation_dim = _integer(
+        getattr(factory, "observation_dim", OBS_DIM), "observation_dim"
+    )
+    observation_schema = getattr(factory, "observation_schema", SCHEMA_VERSION)
+    reward_scheme = getattr(factory, "reward_scheme", REWARD_SCHEME)
+    if (observation_dim, observation_schema) not in (
+        (OBS_DIM, 2),
+        (OBS_DIM + 30, 3),
+        (ECONOMIC_OBS_DIM, ECONOMIC_SCHEMA_VERSION),
+    ):
+        raise ValueError("unsupported observation profile")
+    if reward_scheme not in (REWARD_SCHEME, "terminal_win_net_vp_0.1_v1"):
+        raise ValueError("unsupported reward profile")
+    shaped = reward_scheme != REWARD_SCHEME
+    storage = _Rows(len(seeds) * max_actions, observation_dim)
     last = np.full((len(seeds), 4), -1, dtype=np.int32)
-    final = np.zeros((len(seeds), 4, OBS_DIM), dtype=np.float32)
+    final = np.zeros((len(seeds), 4, observation_dim), dtype=np.float32)
     episodes = [None] * len(seeds)
     active = []
     launched = 0
 
     def launch(index):
-        env = CatanEnv(max_actions=max_actions)
+        env = factory(max_actions=max_actions)
         request = None
         try:
             request = env.reset(seeds[index], n_players=players)
@@ -435,27 +475,36 @@ def collect_rollouts(
                 outcome = env.step(sample.action, player=request.player)
                 if validate:
                     assert_invariants(env._state)
+                    if hasattr(env, "validate_knowledge"):
+                        env.validate_knowledge()
             except Exception as error:
                 error.add_note(
                     f"collector episode={index}, seed={seeds[index]}, policy_seed={policy_seed}, action={step + 1}, actor={request.player}, phase={request.phase.name}"
                 )
                 raise
-            row = storage.append(request, sample, index, step)
-            previous = int(last[index, request.player])
-            if previous >= 0:
-                storage.arrays["next_rows"][previous] = row
-                storage.arrays["elapsed_actions"][previous] = step - int(
-                    storage.arrays["steps"][previous]
-                )
-            last[index, request.player] = row
+            if keep[request.player]:
+                row = storage.append(request, sample, index, step)
+                previous = int(last[index, request.player])
+                if previous >= 0:
+                    storage.arrays["next_rows"][previous] = row
+                    storage.arrays["elapsed_actions"][previous] = step - int(
+                        storage.arrays["steps"][previous]
+                    )
+                last[index, request.player] = row
+            if shaped and any(outcome.rewards):
+                for seat in recorded:
+                    closing = int(last[index, seat])
+                    if closing >= 0:
+                        storage.arrays["rewards"][closing] += outcome.rewards[seat]
             if not outcome.terminated and not outcome.truncated:
                 remaining.append((index, env, streams, env.decision()))
                 continue
-            for seat in range(players):
+            for seat in recorded:
                 final[index, seat] = env.observe(seat)
                 closing = int(last[index, seat])
                 if closing >= 0:
-                    storage.arrays["rewards"][closing] = outcome.rewards[seat]
+                    if not shaped:
+                        storage.arrays["rewards"][closing] = outcome.rewards[seat]
                     storage.arrays["elapsed_actions"][closing] = env.actions - int(
                         storage.arrays["steps"][closing]
                     )
@@ -483,6 +532,8 @@ def collect_rollouts(
         final_observations=final,
         last_rows=last,
         policy_tag=policy_tag,
+        observation_schema=observation_schema,
+        reward_scheme=reward_scheme,
     )
 
 
@@ -500,11 +551,13 @@ def save_rollouts(batch, path, *, compressed=False):
     if type(compressed) is not bool:
         raise ValueError("compressed must be a bool")
     metadata = {
-        "collector_schema": COLLECTOR_SCHEMA_VERSION,
+        "collector_schema": 1
+        if batch.observation_schema == 2 and batch.reward_scheme == REWARD_SCHEME
+        else (3 if batch.observation_schema == 4 else 2),
         "environment_schema": ENV_SCHEMA_VERSION,
-        "observation_schema": SCHEMA_VERSION,
+        "observation_schema": batch.observation_schema,
         "action_schema": ACTION_SCHEMA_VERSION,
-        "reward_scheme": REWARD_SCHEME,
+        "reward_scheme": batch.reward_scheme,
         "policy_tag": batch.policy_tag,
         "episodes": [asdict(episode) for episode in batch.episodes],
     }

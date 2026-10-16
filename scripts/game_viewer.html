@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Catan · Bot observatory</title>
+  <style>
+    :root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#182d2b;background:#edf1ef;--green:#176c52;--line:#d9e2dc}
+    *{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button,select,input{border:1px solid #c7d4cb;border-radius:7px;padding:9px 11px;background:#fff;color:inherit}button{cursor:pointer}button:hover{background:#e8f1eb}button:disabled{opacity:.5;cursor:wait}.primary{color:white;background:var(--green);border-color:var(--green)}.primary:hover{background:#10573f}
+    header{background:#173b32;color:#f4f6f1;padding:23px 32px;display:flex;justify-content:space-between;align-items:center}h1{font-size:24px;letter-spacing:-.6px;margin:2px 0}.eyebrow{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#a9c7b7}.tag{font-size:12px;border:1px solid #567c6a;border-radius:20px;padding:7px 12px}
+    main{max-width:1550px;margin:auto;padding:22px}.controls,.card{background:white;border:1px solid var(--line);border-radius:12px;padding:17px}.controls{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:14px}label{font-size:12px;color:#52665b;display:flex;flex-direction:column;gap:5px}#seed{width:150px}#bots{display:flex;gap:8px;flex-wrap:wrap}.check{flex-direction:row;align-items:center;margin-bottom:8px}.layout{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:16px}.boardcard{padding:0;overflow:hidden}.boardhead{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:10px;font-size:13px}#phase{font-weight:700}canvas{width:100%;display:block;background:radial-gradient(ellipse at center,#fafbf7 30%,#e5efeb 100%)}.scores{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}.score{background:#fff;border:1px solid var(--line);border-top:4px solid var(--seat);border-radius:9px;padding:12px}.score.active{outline:2px solid #abc4b4}.score strong{font-size:23px}.score span{font-size:12px;color:#5a6b61}.score .bot{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:3px 0 10px;font-size:12px}.sub{font-size:12px;color:#63776b;line-height:1.6}.rail{display:flex;flex-direction:column;gap:12px}h2{font-size:14px;margin:0 0 12px}.move{font-size:18px;font-weight:650;line-height:1.4;margin:8px 0}.pill{display:inline-block;padding:4px 8px;border-radius:5px;background:#edf2ee;font-size:11px}#alert{background:#fff3df;color:#774713;border:1px solid #ead4ae;padding:10px;border-radius:7px;margin-top:10px;font-size:13px}.alternative{border-top:1px solid #e4eae5;padding:9px 0;font-size:12px;line-height:1.5}.alternative strong{float:right;color:var(--green)}.good{color:#176c52}.playback{margin-top:14px}.playrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}#timeline{width:100%;padding:12px 0;accent-color:var(--green)}#position{font-variant-numeric:tabular-nums;font-size:12px;margin-left:auto}.log{max-height:330px;overflow:auto}.log button{display:block;text-align:left;width:100%;border:0;border-bottom:1px solid #edf0ed;border-radius:0;font-size:12px;padding:9px}.log button.current{background:#e5eee8}.log .flag{color:#96571c}#status{min-height:25px;font-size:13px;color:#566e60;margin:7px 0}#error{color:#9c3636;font-size:13px}.details{font-size:12px;line-height:1.7;word-break:break-word}.legend{display:flex;gap:13px;font-size:11px;color:#566e60;padding:12px 20px;flex-wrap:wrap}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}.notes{font-size:12px;color:#5f7266;padding:14px 2px;line-height:1.7}
+    .layout>div{display:flex;flex-direction:column}.playback{order:-1;position:sticky;top:8px;z-index:2;margin-top:0;margin-bottom:12px;padding:12px;box-shadow:0 3px 12px #173b3210}
+    @media(max-width:1050px){.layout{grid-template-columns:1fr 310px}main{padding:12px}.scores{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+    @media(max-width:780px){header{padding:18px}.layout{grid-template-columns:1fr}.rail{display:grid;grid-template-columns:1fr}.controls{align-items:start}.tag{display:none}#bots{width:100%}}
+  </style>
+  <script src="/game.js" defer></script>
+</head>
+<body>
+  <header><div><div class="eyebrow">Catan research workspace</div><h1>Bot observatory</h1></div><div class="tag">Local games · reproducible seeds</div></header>
+  <main>
+    <section class="controls" aria-label="Match settings">
+      <label>Board seed<input id="seed" type="number" min="0" max="4294967295" value="42"></label>
+      <label>Players<select id="players"><option value="4">4 players</option><option value="3">3 players</option></select></label>
+      <div id="bots"></div>
+      <label class="check"><input id="deterministic" type="checkbox">Neural argmax</label>
+      <button id="new" class="primary">New game</button>
+    </section>
+    <div id="status" role="status">Choose bots and start a game.</div><div id="error" role="alert"></div>
+    <section id="scores" class="scores" aria-label="Player scores"></section>
+    <div class="layout">
+      <div>
+        <section class="card boardcard">
+          <div class="boardhead"><span id="phase">Ready</span><span id="roll">Dice —</span><span id="awards">Awards unclaimed</span></div>
+          <canvas id="board" width="1000" height="590" aria-label="Catan game board"></canvas>
+          <div class="legend"><span><i class="dot" style="background:#287b53"></i>Wood</span><span><i class="dot" style="background:#a0c46d"></i>Sheep</span><span><i class="dot" style="background:#eacb67"></i>Wheat</span><span><i class="dot" style="background:#c47755"></i>Brick</span><span><i class="dot" style="background:#a7b5b7"></i>Ore</span><span>Click a vertex to inspect its production.</span></div>
+        </section>
+        <section class="card playback" aria-label="Game playback">
+          <div class="playrow">
+            <button id="back" aria-label="Previous action">←</button><button id="play" class="primary">Play</button><button id="next">Step →</button><button id="latest">Latest</button>
+            <label>Speed<select id="speed"><option value="1500">Slow</option><option value="500" selected>Normal</option><option value="100">Fast</option><option value="0">Maximum</option></select></label>
+            <span id="position">0 / 0 actions</span>
+          </div>
+          <input id="timeline" type="range" min="0" max="0" value="0" aria-label="Action timeline">
+          <div class="playrow"><label class="check"><input id="pause-win" type="checkbox" checked>Pause on a missed guaranteed win</label><button id="export">Export replay JSON</button></div>
+        </section>
+        <p class="notes">Debug replay: selected-player hands and action details can reveal private information. Bots act only on their own permitted observations. Guaranteed-win flags cover builds, knights and up to two free roads; other weaknesses need human review. A missed flag is a proved error, while the absence of a flag does not imply good play.</p>
+      </div>
+      <aside class="rail">
+        <section class="card"><h2>Learning experiment</h2><div id="experiment" class="details">Checking experiment progress…</div><div class="sub">Matches below are inspection games from fixed checkpoints; they do not change training.</div></section>
+        <section class="card"><h2>Decision inspector</h2><span id="actor" class="pill">No action yet</span><div id="move" class="move">Waiting for a game</div><div id="alert" hidden></div><div id="alternatives"></div><div id="value" class="sub"></div></section>
+        <section class="card"><h2>Player perspective</h2><label>Inspect hand<select id="perspective"><option value="-1">Public information</option></select></label><div id="hand" class="details"></div></section>
+        <section class="card"><h2>Board inspection</h2><div id="vertex" class="details">Select a vertex on the board.</div></section>
+        <section class="card"><h2>Action log</h2><div id="log" class="log"></div></section>
+      </aside>
+    </div>
+  </main>
+</body>
+</html>

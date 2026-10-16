@@ -16,11 +16,17 @@ import numpy as np
 import torch
 
 from catan.state import _integer
-from learning.model import ActorCritic, MODEL_SCHEMA_VERSION
+from learning.model import (
+    ActorCritic,
+    EconomicActorCritic,
+    KnowledgeActorCritic,
+    MODEL_SCHEMA_VERSION,
+)
 from learning.policy import NeuralPolicy, action_batch
+from learning.graph import GraphActorCritic
 from rl.actions import ACTION_DIM, ACTION_SCHEMA_VERSION
 from rl.collector import COLLECTOR_SCHEMA_VERSION, RolloutBatch
-from rl.encoding import OBS_DIM, SCHEMA_VERSION
+from rl.encoding import SCHEMA_VERSION
 from rl.env import ENV_SCHEMA_VERSION, REWARD_SCHEME
 from rl.returns import TARGET_SCHEMA_VERSION, compute_targets
 
@@ -32,6 +38,26 @@ _SCHEMAS = (
     ACTION_SCHEMA_VERSION,
     ENV_SCHEMA_VERSION,
     COLLECTOR_SCHEMA_VERSION,
+    TARGET_SCHEMA_VERSION,
+    REWARD_SCHEME,
+)
+_ECONOMIC_SCHEMAS = (
+    3,
+    3,
+    4,
+    ACTION_SCHEMA_VERSION,
+    ENV_SCHEMA_VERSION,
+    3,
+    TARGET_SCHEMA_VERSION,
+    REWARD_SCHEME,
+)
+_GRAPH_SCHEMAS = (
+    4,
+    4,
+    4,
+    ACTION_SCHEMA_VERSION,
+    ENV_SCHEMA_VERSION,
+    3,
     TARGET_SCHEMA_VERSION,
     REWARD_SCHEME,
 )
@@ -61,6 +87,7 @@ class PPOConfig:
     discount: str = "decision"
     normalize_advantages: bool = True
     adam_mode: str = "fused"
+    critic_updates_trunk: bool = True
 
     def __post_init__(self):
         for name in ("epochs", "minibatch_size"):
@@ -87,6 +114,8 @@ class PPOConfig:
             raise ValueError("discount must be decision or engine")
         if type(self.normalize_advantages) is not bool:
             raise ValueError("normalize_advantages must be Boolean")
+        if type(self.critic_updates_trunk) is not bool:
+            raise ValueError("critic_updates_trunk must be Boolean")
 
         if self.adam_mode not in ("scalar", "foreach", "fused"):
             raise ValueError("adam_mode must be scalar, foreach or fused")
@@ -166,7 +195,9 @@ class PPOUpdater:
     checkpoint. No costly per-step weight/optimizer rollback copies are made.
     """
 
-    def __init__(self, model, config=None, *, shuffle_seed=0):
+    def __init__(
+        self, model, config=None, *, shuffle_seed=0, reward_scheme=REWARD_SCHEME
+    ):
         if not isinstance(model, ActorCritic):
             raise ValueError("model must be ActorCritic")
         config = PPOConfig() if config is None else config
@@ -177,7 +208,11 @@ class PPOUpdater:
             for p in model.parameters()
         ):
             raise ValueError("model parameters must be finite float32")
-        self.model, self.config = model, config
+        if reward_scheme not in (REWARD_SCHEME, "terminal_win_net_vp_0.1_v1"):
+            raise ValueError("unknown reward scheme")
+        if reward_scheme != REWARD_SCHEME and model.schema[0] != 2:
+            raise ValueError("progress rewards require the versioned experiment model")
+        self.model, self.config, self.reward_scheme = model, config, reward_scheme
         self.shuffle_seed = _integer(shuffle_seed, "shuffle_seed")
         self.generator = torch.Generator(device="cpu").manual_seed(self.shuffle_seed)
         self.optimizer = torch.optim.Adam(
@@ -203,7 +238,25 @@ class PPOUpdater:
     def policy(self):
         self._ready()
         return NeuralPolicy(
-            self.model, policy_version=f"ppo{PPO_SCHEMA_VERSION}-u{self.updates}"
+            self.model, policy_version=f"ppo{self._schemas()[0]}-u{self.updates}"
+        )
+
+    def _schemas(self):
+        if self.model.schema[0] == 4:
+            return _GRAPH_SCHEMAS
+        if self.model.schema[0] == 1:
+            return _SCHEMAS
+        if self.model.schema[0] == 3:
+            return _ECONOMIC_SCHEMAS
+        return (
+            2,
+            2,
+            3,
+            ACTION_SCHEMA_VERSION,
+            ENV_SCHEMA_VERSION,
+            2,
+            TARGET_SCHEMA_VERSION,
+            self.reward_scheme,
         )
 
     def _preflight(self, batch):
@@ -211,7 +264,7 @@ class PPOUpdater:
         if not isinstance(batch, RolloutBatch) or len(batch) < 1:
             raise ValueError("a nonempty RolloutBatch is required")
         for name, shape, dtype in (
-            ("observations", (len(batch), OBS_DIM), np.float32),
+            ("observations", (len(batch), self.model.observation_dim), np.float32),
             ("masks", (len(batch), ACTION_DIM), np.bool_),
             ("actions", (len(batch),), np.int16),
             ("log_probs", (len(batch),), np.float32),
@@ -220,6 +273,11 @@ class PPOUpdater:
             column = getattr(batch, name)
             if column.shape != shape or column.dtype != dtype:
                 raise ValueError(f"invalid rollout {name} shape/dtype")
+        if (
+            batch.observation_schema != self.model.schema[1]
+            or batch.reward_scheme != self.reward_scheme
+        ):
+            raise ValueError("rollout observation/reward profile differs from updater")
         d = len(batch.discards.rows)
         if batch.discards.rows.dtype != np.int32 or not np.array_equal(
             batch.discards.rows, np.flatnonzero(batch.actions == -1)
@@ -273,7 +331,25 @@ class PPOUpdater:
                 if not torch.allclose(
                     evaluated.values, inputs.old_values, rtol=2e-5, atol=3e-6
                 ):
-                    raise ValueError("behavior values do not match unchanged model")
+                    # Small collection batches and large GEMMs can round a
+                    # near-cancelling critic dot product differently. Verify
+                    # only suspect rows with the scalar kernel, using the
+                    # identical existing tolerance; never replace stored values.
+                    suspect = torch.nonzero(
+                        ~torch.isclose(
+                            evaluated.values, inputs.old_values, rtol=2e-5, atol=3e-6
+                        )
+                    ).flatten()
+                    scalar = torch.stack(
+                        [
+                            self.model(inputs.observations[i : i + 1]).values[0]
+                            for i in suspect.tolist()
+                        ]
+                    )
+                    if not torch.allclose(
+                        scalar, inputs.old_values[suspect], rtol=2e-5, atol=3e-6
+                    ):
+                        raise ValueError("behavior values do not match unchanged model")
         targets = compute_targets(
             batch,
             bootstrap_values=policy.bootstrap_values(batch),
@@ -309,7 +385,13 @@ class PPOUpdater:
                 clipped += b
         return kl / len(batch), clipped / len(batch)
 
-    def update(self, batch):
+    def update(self, batch, *, anchor=None):
+        if anchor is not None:
+            from learning.tactics import ReplayAnchor
+
+            if not isinstance(anchor, ReplayAnchor):
+                raise ValueError("anchor must be a bounded ReplayAnchor")
+            anchor.prepare(self.model)
         advantages, targets, mean, std = self._preflight(batch)
         accumulated = np.zeros(3, dtype=np.float64)
         seen = steps = completed = 0
@@ -323,7 +405,10 @@ class PPOUpdater:
                     rows = order[start : start + self.config.minibatch_size]
                     inputs = action_batch(batch, rows, device=self.device)
                     loss = ppo_loss(
-                        inputs.evaluate(self.model),
+                        inputs.evaluate(
+                            self.model,
+                            critic_updates_trunk=self.config.critic_updates_trunk,
+                        ),
                         inputs.old_log_probs,
                         inputs.old_values,
                         torch.from_numpy(advantages[rows]).to(self.device),
@@ -337,7 +422,12 @@ class PPOUpdater:
                         stopped = True
                         break
                     self.optimizer.zero_grad(set_to_none=True)
-                    loss.total.backward()
+                    objective = loss.total
+                    if anchor is not None:
+                        objective = objective + anchor.loss(self.model)
+                        if not torch.isfinite(objective):
+                            raise FloatingPointError("nonfinite anchored objective")
+                    objective.backward()
                     norm = torch.nn.utils.clip_grad_norm_(
                         self.model.parameters(),
                         self.config.max_grad_norm,
@@ -395,7 +485,7 @@ class PPOUpdater:
         self._ready()
         path = Path(path)
         payload = {
-            "schemas": _SCHEMAS,
+            "schemas": self._schemas(),
             "config": asdict(self.config),
             "hidden_size": self.model.hidden_size,
             "model_seed": self.model.seed,
@@ -432,14 +522,33 @@ class PPOUpdater:
             "updates",
             "optimizer_steps",
         }
-        if (
-            not isinstance(data, dict)
-            or set(data) != required
-            or data["schemas"] != _SCHEMAS
+        if not isinstance(data, dict) or set(data) != required:
+            raise ValueError("incompatible PPO checkpoint/schema")
+        schemas = data["schemas"]
+        if schemas == _SCHEMAS:
+            model_type = ActorCritic
+        elif schemas == _ECONOMIC_SCHEMAS:
+            model_type = EconomicActorCritic
+        elif schemas == _GRAPH_SCHEMAS:
+            model_type = GraphActorCritic
+        elif schemas in tuple(
+            (
+                2,
+                2,
+                3,
+                ACTION_SCHEMA_VERSION,
+                ENV_SCHEMA_VERSION,
+                2,
+                TARGET_SCHEMA_VERSION,
+                reward,
+            )
+            for reward in (REWARD_SCHEME, "terminal_win_net_vp_0.1_v1")
         ):
+            model_type = KnowledgeActorCritic
+        else:
             raise ValueError("incompatible PPO checkpoint/schema")
         config = PPOConfig(**data["config"])
-        model = ActorCritic(data["hidden_size"], seed=data["model_seed"])
+        model = model_type(data["hidden_size"], seed=data["model_seed"])
         expected_state = model.state_dict()
         if set(data["model"]) != set(expected_state):
             raise ValueError("checkpoint model fields do not match architecture")
@@ -451,12 +560,17 @@ class PPOUpdater:
                 or not torch.isfinite(tensor).all()
             ):
                 raise ValueError("invalid checkpoint model tensor")
-            if name in ("resource_codes", "count_choices") and not torch.equal(
-                tensor, expected_tensor
-            ):
+            if name in getattr(
+                model, "fixed_buffers", ("resource_codes", "count_choices")
+            ) and not torch.equal(tensor, expected_tensor):
                 raise ValueError("invalid fixed model buffer")
         model.load_state_dict(data["model"], strict=True)
-        result = cls(model.to(device), config, shuffle_seed=data["shuffle_seed"])
+        result = cls(
+            model.to(device),
+            config,
+            shuffle_seed=data["shuffle_seed"],
+            reward_scheme=schemas[-1],
+        )
         for name in ("updates", "optimizer_steps"):
             value = _integer(data[name], name)
             if value < 0:

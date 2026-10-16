@@ -13,7 +13,7 @@ from catan.state import Phase
 from rl.actions import _CATALOG
 from rl.encoding import FEATURE_SHAPES, FEATURE_SLICES
 
-POLICY_VERSIONS = MappingProxyType({"random": 1, "greedy": 1})
+POLICY_VERSIONS = MappingProxyType({"random": 1, "greedy": 1, "tactical": 2})
 _ROAD_FRONTIERS = tuple(
     tuple(
         sorted(
@@ -189,4 +189,14 @@ def greedy_policy(decision, rng):
     return 219 if 219 in legal else 220 if 220 in legal else legal[0]
 
 
-POLICIES = MappingProxyType({"random": random_policy, "greedy": greedy_policy})
+def tactical_policy(decision, rng):
+    """Corrected teacher; keep historical greedy-v1 behavior exactly unchanged."""
+    from rl.tactics import winning_actions
+
+    wins = np.flatnonzero(winning_actions(decision))
+    return int(wins[0]) if len(wins) else greedy_policy(decision, rng)
+
+
+POLICIES = MappingProxyType(
+    {"random": random_policy, "greedy": greedy_policy, "tactical": tactical_policy}
+)

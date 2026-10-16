@@ -1,5 +1,18 @@
 # PPO update contract (2026-10-13)
 
+2026-10-15 optional profile: [public economic features](economic-features.md)
+add model3/observation4/PPO3/collector3 with the original reward and loss.
+Legacy defaults remain unchanged. Strict new-profile loading and exact Adam/local
+shuffle resumption are tested; the new feature checkpoint has no training updates.
+
+2026-10-14 update: [imitation and mixed-opponent training](imitation-curriculum.md)
+reuses this updater. Supervised Demonstrations are a separate type and never enter
+PPO. Mixed games retain only the current learner's rows, own version tag and actual
+probabilities/values; the same numerical preflight rejects opponent records even
+after a tag is relabelled. No PPO schema, target or loss change was introduced.
+
+Later experiment update: [time-budgeted real training](training-experiment.md) is complete and independently verified. The selected model won 188/448 held-out games versus 65/448 initially, with most improvement against random opponents and very little success against greedy opponents. Earlier no-long-training boundaries below describe this dated PPO mechanics milestone.
+
 This stage adds `learning.ppo`: a bounded update mechanism for the existing optional
 PyTorch policy/critic. It changes model parameters during requested mechanics tests.
 It does not launch a long training experiment, manage opponent pools, stream horizon
@@ -277,6 +290,18 @@ separate wins from caps. Compare learning quality and total time before changing
 width, learning rate, clipping, entropy or minibatch defaults. Then consider parallel
 collection/GPU profiling where measured, opponent snapshots/self-play scheduling,
 fragments, GNNs or symmetry when a baseline exposes their value.
+
+## Optional direct critic-gradient control (2026-10-15)
+
+PPOConfig.critic_updates_trunk defaults to true. False trains the value head
+from detached shared features while keeping the fused forward values, actor
+gradients and inference unchanged. This blocks direct critic backpropagation
+into shared features; combined gradient clipping remains an indirect coupling.
+The flag is saved with PPO config, and older checkpoints load with true.
+Balanced training schedules and explicitly bounded milestone retention are
+separate opt-in TrainingRun settings. See the
+[controlled comparison](critic-gradient-comparison.md) for mechanism tests,
+costs, seed schedules, recovery and the final-checkpoint-primary pilot.
 
 ## Simple explanation
 

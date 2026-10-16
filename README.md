@@ -13,13 +13,100 @@ Stage 5 adds [continuous invariant and random-game validation](docs/stage-five-v
 with deterministic replay reports, bounded parallel workers and explicit win/cap counts.
 Guide Sections 6-7 now provide [relative flat observations](docs/representation-encoding.md):
 fixed float32 features for three/four seats, hidden opponent hands, and prepared
-immutable board lookups with optional output buffers. The browser remains a board/discard demo. The optional model, collector and PPO updater are implemented; long training experiments remain future work.
+immutable board lookups with optional output buffers. The browser remains a board/discard demo. The optional model, collector, PPO updater and first two-hour CPU training experiment are complete; detailed results are below.
 The [discard rule contract](docs/manual-discards.md) documents manual choices. The
 [Phase 3 plan and verification](docs/phase-three-plan.md) document the state contract.
 
 The board generator and board-preview routes use only Python's standard library.
 Game state and observation encoding use pinned NumPy 2.4.6; pytest/Ruff are development tools. PyTorch is available separately in the optional learning image. Dependencies are installed in Docker.
 
+
+## Placement, point-reward and resource-memory comparison
+
+The [completed experiment report](docs/training-hypotheses.md) implements the
+[agreed four-variant plan](docs/training-hypotheses-plan.md). It compares normal
+practice, setup-only imitation, small net VP rewards and public resource memory
+from the same preserved original weights. Three practice seeds and fresh,
+paired all-seat tests distinguish real wins from shaped rewards and cutoffs.
+The optional model2/observation3 profiles retain legacy checkpoint compatibility;
+the ordinary engine and default observation/reward contracts remain available.
+The new runner supports cooperative pause/resume with charged active time.
+The independently verified13440-role comparison found no reliable greedy-win
+improvement: original/B/P/R/K won15/12/6/13/12of1344greedy games each. Random
+win rates were77.31%/70.91%/62.28%/64.73%/73.44%. No checkpoint was promoted.
+The report includes adjusted paired intervals, decision diagnostics, performance
+costs, replay verification and plain-language conclusions; evidence is preserved
+in output/hypotheses. Training is finished and its follow-up is paused.
+
+The subsequent [continuation-regression investigation](docs/continuation-regression-investigation.md)
+replayed saved models, inspected common positions and tested opening/main-turn
+controls without training. Giving bots identical greedy openings left the observed
+regression, while greedy main-turn decisions removed the pooled deficit against
+random opponents. Sparse wins and strong startup critic gradients motivate a
+controlled learning ablation; they do not establish a proven fix. Early checkpoint
+retention is needed to locate the exact onset in a future run.
+
+The [direct critic-gradient comparison](docs/critic-gradient-comparison.md)
+adds an optional gradient shield, balanced player/opponent/seat practice and
+retained early development checkpoints. Legacy behavior remains the default.
+Its bounded matched pilot compares equal training cohorts, with final checkpoints
+as primary and fresh paired tests; results and verification are documented there.
+The verified pilot completed 2,688 practice games and 2,016 final roles. Greedy
+wins for original/standard/shielded were 5/4/1 out of 336 each; random wins were
+250/233/254. The shield did not improve the primary objective, and its random
+advantage is inconclusive. The original bot is retained. All 54 checkpoints
+were reconciled and 28 held-out games replayed exactly. No training remains active.
+
+## Greedy imitation and mixed-opponent training
+
+The [imitation/curriculum contract](docs/imitation-curriculum.md) describes bounded
+numeric teacher datasets, phase-balanced actor fitting and learner-only PPO games
+against greedy, random, current and retained older policies. It reuses the existing
+engine, collector, model and resumable trainer. Existing model/checkpoint formats
+remain compatible; the browser is still the board/discard demo.
+
+The same-trajectory benchmark reduced retained rollout array payload by 75.6%;
+the measured likelihood-only imitation path saved about 6% of forward/backward
+time with identical logs/gradients. These are workload measurements, not guaranteed
+game-strength gains. The completed three-method pilot found no reliable greedy
+improvement: imitation-mixed won 2/252 versus the original's 1/252, while random
+wins fell from 202/252 to 162/252. The linked report includes raw results and an
+independent replay audit; the original policy was preserved.
+
+For a new run, train_ppo accepts --initial-checkpoint, --opponents
+greedy self previous greedy random, and --tuning-opponent greedy. The bounded
+scripts.compare_training CLI generates teacher shards, pretrains separate
+candidates and compares all three methods on fresh tuning/test boards. Its
+complete container command and results are in the contract.
+
+## Budgeted training experiment
+
+The [experiment contract](docs/training-experiment.md) describes the CPU training
+runner, shared-policy self-play, fresh seed schedule, distinct tuning/test boards,
+seat-rotated random/greedy opponents, paired seed-cluster comparisons and bounded
+checkpoint/run-state recovery. The first experiment completed 17,792 games and
+1,112 PPO updates in 2 hours, 1 minute, 43 seconds including final evaluation.
+The tuning-selected model improved held-out wins from 65/448 (14.51%) to 188/448
+(41.96%): 83.48% against random opponents, but 0.45% against greedy opponents.
+All counts, checkpoint versions and paired seed-cluster intervals were independently
+verified; the selected model replayed all 448 test games exactly. Raw evidence and
+detailed/plain explanations are linked from the experiment report. Earlier held-training
+statements below describe the dated milestones. The original run is complete;
+the subsequent imitation/curriculum comparison is documented separately above.
+
+```powershell
+docker build --provenance=false --target learning-checks -t catan-learning-checks .
+docker run --rm --cpus 4 --memory 4g --mount 'type=bind,source=C:\Users\david\Documents\Coding\Catan\output\training,target=/results' catan-learning-checks python -m scripts.train_ppo --output /results/my-run --minutes 120
+```
+
+## Greedy-opponent decision diagnosis
+
+The [frozen-policy diagnosis](docs/greedy-policy-diagnosis.md) inspects the selected
+model's placements, resource use, trades, discards and a verified missed immediate
+win. New diagnostic boards and phase controls point to interacting setup/economic
+weaknesses. The controls are evaluation experiments, not retrained or deployed
+policies. The diagnostic CLI and 27 replay/isolation/accounting tests add no work
+to the normal engine, collector or trainer.
 
 ## PPO updates and checkpoints (2026-10-13)
 
@@ -469,6 +556,14 @@ the same flat API response. Valid numeric input such as `1e3` is normalized to
 seed 1000; obsolete responses cannot replace a more recently requested board.
 The original `/api/tiles` endpoint remains available. HTML is read on each request
 so edits appear on refresh. `--host`, `--port`, and `--no-browser` configure startup.
+
+## Economic feature investigation
+
+The optional public economic profile and reproducible development decision suite
+are documented in [docs/economic-features.md](docs/economic-features.md).
+EconomicEnvFactory/EconomicActorCritic use observation4/model3 while preserving
+the original defaults and checkpoints. This increment freezes a baseline and
+adds tested features; it does not launch training or claim stronger play.
 
 ## Detailed project decision report
 
